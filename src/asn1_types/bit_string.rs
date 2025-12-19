@@ -69,8 +69,7 @@ impl DERImplicitlyTaggable for ASN1BitString {
                     let mask = (1u8 << padding_bits) - 1;
                     if (last & mask) != 0 {
                         return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "BIT STRING unused bits must be zero".to_string(), file!().to_string(), line!()));
-                    }
-                }
+                    } }
 
                 Ok(ASN1BitString { bytes: data, padding_bits })
             },

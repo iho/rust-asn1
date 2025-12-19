@@ -105,12 +105,9 @@ impl ASN1ObjectIdentifier {
         // Use Swift logic.
         
         // Fix for first component extraction from `components` vec which handles this.
-        if !components.is_empty() {
-             components[0] = first;
-             components[1] = second;
-        } else {
-             // Already pushed 
-        }
+        // Already pushed
+        components[0] = first;
+        components[1] = second;
 
         while !data.is_empty() {
              components.push(read_oid_subidentifier(&mut data)?);
@@ -237,6 +234,9 @@ fn read_oid_subidentifier(data: &mut Bytes) -> Result<u64, ASN1Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::asn1_types::ASN1Identifier;
+    use crate::ber;
+    use crate::der;
 
     #[test]
     fn test_oid_new_errors() {
@@ -256,6 +256,73 @@ mod tests {
         // Tag 06 Length 02 Data 80 01
         let data = vec![0x06, 0x02, 0x80, 0x01];
         let res = ASN1ObjectIdentifier::from_der_bytes(&data);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_oid_components_empty_bytes_error() {
+        let oid = ASN1ObjectIdentifier { bytes: Bytes::new() };
+        assert!(oid.oid_components().is_err());
+    }
+
+    #[test]
+    fn test_oid_new_zero_first_subidentifier_hits_zero_write_path() {
+        // firstByteVal = 0 * 40 + 0 => write_oid_subidentifier(0, ...)
+        let oid = ASN1ObjectIdentifier::new(&[0, 0]).unwrap();
+        assert_eq!(oid.bytes.as_ref(), [0x00, 0x00]);
+        let comps = oid.oid_components().unwrap();
+        assert_eq!(comps, vec![0, 0, 0]);
+    }
+
+    #[test]
+    fn test_oid_der_identifier_mismatch() {
+        let node = der::parse(&[0x06, 0x01, 0x00]).unwrap();
+        let res = <ASN1ObjectIdentifier as crate::der::DERImplicitlyTaggable>::from_der_node_with_identifier(
+            node,
+            ASN1Identifier::INTEGER,
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_oid_der_empty_content_error() {
+        let res = ASN1ObjectIdentifier::from_der_bytes(&[0x06, 0x00]);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_oid_der_constructed_rejected() {
+        let node = der::parse(&[0x26, 0x00]).unwrap();
+        let res = ASN1ObjectIdentifier::from_der_node(node);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_oid_ber_wrappers() {
+        let node = ber::parse(&[0x06, 0x01, 0x00]).unwrap();
+        let v = ASN1ObjectIdentifier::from_ber_node(node).unwrap();
+        assert_eq!(v.oid_components().unwrap(), vec![0, 0]);
+
+        let node = ber::parse(&[0x06, 0x01, 0x00]).unwrap();
+        let v = <ASN1ObjectIdentifier as crate::ber::BERImplicitlyTaggable>::from_ber_node_with_identifier(
+            node,
+            ASN1Identifier::OBJECT_IDENTIFIER,
+        )
+        .unwrap();
+        assert_eq!(v.oid_components().unwrap(), vec![0, 0]);
+
+        let node = ber::parse(&[0x06, 0x01, 0x00]).unwrap();
+        let res = <ASN1ObjectIdentifier as crate::ber::BERImplicitlyTaggable>::from_ber_node_with_identifier(
+            node,
+            ASN1Identifier::INTEGER,
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_read_oid_subidentifier_empty_error() {
+        let mut data = Bytes::new();
+        let res = read_oid_subidentifier(&mut data);
         assert!(res.is_err());
     }
 }

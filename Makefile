@@ -11,7 +11,7 @@ report:
 	cargo llvm-cov report
 
 
-# Mutations testing
+# Mutation testing
 
 install_mutant:
 	cargo install --locked cargo-mutants

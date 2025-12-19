@@ -16,13 +16,12 @@ pub enum TagClass {
 
 impl TagClass {
     pub(crate) fn from_top_byte(top_byte: u8) -> Self {
-        match top_byte >> 6 {
-            0x00 => TagClass::Universal,
-            0x01 => TagClass::Application,
-            0x02 => TagClass::ContextSpecific,
-            0x03 => TagClass::Private,
-            _ => unreachable!(),
-        }
+        [
+            TagClass::Universal,
+            TagClass::Application,
+            TagClass::ContextSpecific,
+            TagClass::Private,
+        ][(top_byte >> 6) as usize]
     }
 
     pub(crate) fn top_byte_flags(&self) -> u8 {
@@ -93,5 +92,26 @@ impl fmt::Display for ASN1Identifier {
             "ASN1Identifier(tagNumber: {}, tagClass: {:?})",
             self.tag_number, self.tag_class
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tag_class_from_top_byte() {
+        assert_eq!(TagClass::from_top_byte(0x00), TagClass::Universal);
+        assert_eq!(TagClass::from_top_byte(0x40), TagClass::Application);
+        assert_eq!(TagClass::from_top_byte(0x80), TagClass::ContextSpecific);
+        assert_eq!(TagClass::from_top_byte(0xC0), TagClass::Private);
+    }
+
+    #[test]
+    fn test_tag_class_top_byte_flags() {
+        assert_eq!(TagClass::Universal.top_byte_flags(), 0x00);
+        assert_eq!(TagClass::Application.top_byte_flags(), 0x40);
+        assert_eq!(TagClass::ContextSpecific.top_byte_flags(), 0x80);
+        assert_eq!(TagClass::Private.top_byte_flags(), 0xC0);
     }
 }

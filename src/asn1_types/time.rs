@@ -60,7 +60,9 @@ impl DERImplicitlyTaggable for GeneralizedTime {
                 // Keep it simple: try %Y%m%d%H%M%SZ.
                 // Fractional not implemented for now to save space/time, strictly adhering to what usually appears.
                 // If parsing fails, error.
-                let dt = Utc.datetime_from_str(&s, "%Y%m%d%H%M%SZ").map_err(|_| ASN1Error::new(ErrorCode::InvalidStringRepresentation, "Invalid GeneralizedTime format".to_string(), file!().to_string(), line!()))?;
+                // Use NaiveDateTime then assume UTC
+                let naive = NaiveDateTime::parse_from_str(&s, "%Y%m%d%H%M%SZ").map_err(|_| ASN1Error::new(ErrorCode::InvalidStringRepresentation, "Invalid GeneralizedTime format".to_string(), file!().to_string(), line!()))?;
+                let dt = Utc.from_utc_datetime(&naive);
                 Ok(GeneralizedTime(dt))
             },
              _ => Err(ASN1Error::new(ErrorCode::UnexpectedFieldType, "GeneralizedTime must be primitive".to_string(), file!().to_string(), line!()))
