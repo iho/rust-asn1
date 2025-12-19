@@ -61,11 +61,24 @@ impl DERImplicitlyTaggable for ASN1Integer {
                 if bytes.len() > 1 {
                     let first = bytes[0];
                     let second = bytes[1];
-                    if first == 0x00 && (second & 0x80) == 0 {
-                         return Err(ASN1Error::new(ErrorCode::InvalidASN1IntegerEncoding, "Integer encoded with redundant leading zero".to_string(), file!().to_string(), line!()));
-                    }
-                    if first == 0xFF && (second & 0x80) == 0x80 {
-                         return Err(ASN1Error::new(ErrorCode::InvalidASN1IntegerEncoding, "Integer encoded with redundant leading FF".to_string(), file!().to_string(), line!()));
+                    if first == 0x00 {
+                        if (second & 0x80) == 0 {
+                            return Err(ASN1Error::new(
+                                ErrorCode::InvalidASN1IntegerEncoding,
+                                "Integer encoded with redundant leading zero".to_string(),
+                                file!().to_string(),
+                                line!(),
+                            ));
+                        }
+                    } else if first == 0xFF {
+                        if (second & 0x80) == 0x80 {
+                            return Err(ASN1Error::new(
+                                ErrorCode::InvalidASN1IntegerEncoding,
+                                "Integer encoded with redundant leading FF".to_string(),
+                                file!().to_string(),
+                                line!(),
+                            ));
+                        }
                     }
                 }
                 

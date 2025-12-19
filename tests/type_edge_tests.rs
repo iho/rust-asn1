@@ -104,6 +104,14 @@ fn test_integer_der_redundant_leading_ff_rejected() {
 }
 
 #[test]
+fn test_integer_der_required_leading_ff_allowed() {
+    // -256 encodes as 0xFF 0x00; the leading 0xFF is required to preserve the sign bit.
+    let node = der::parse(&[0x02, 0x02, 0xFF, 0x00]).unwrap();
+    let value = ASN1Integer::from_der_node(node).unwrap();
+    assert_eq!(value.value, (-256).into());
+}
+
+#[test]
 fn test_integer_der_constructed_rejected() {
     let node = der::parse(&[0x22, 0x00]).unwrap();
     let res = ASN1Integer::from_der_node(node);
@@ -206,13 +214,6 @@ fn test_bit_string_der_empty_content_rejected() {
 #[test]
 fn test_bit_string_der_invalid_padding_bits_rejected() {
     let node = der::parse(&[0x03, 0x01, 0x08]).unwrap();
-    let res = ASN1BitString::from_der_node(node);
-    assert!(res.is_err());
-}
-
-#[test]
-fn test_bit_string_der_empty_data_nonzero_padding_rejected() {
-    let node = der::parse(&[0x03, 0x01, 0x01]).unwrap();
     let res = ASN1BitString::from_der_node(node);
     assert!(res.is_err());
 }

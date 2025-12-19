@@ -11,11 +11,24 @@ pub struct ASN1BitString {
     pub padding_bits: u8,
 }
 
+const MAX_PADDING_BITS: u8 = 7;
+
+fn ensure_padding_bits_within_range(padding_bits: u8) -> Result<(), ASN1Error> {
+    if (0..=MAX_PADDING_BITS).contains(&padding_bits) {
+        Ok(())
+    } else {
+        Err(ASN1Error::new(
+            ErrorCode::InvalidASN1Object,
+            format!("Invalid padding bits value: {}", padding_bits),
+            file!().to_string(),
+            line!(),
+        ))
+    }
+}
+
 impl ASN1BitString {
     pub fn new(bytes: Bytes, padding_bits: u8) -> Result<Self, ASN1Error> {
-        if padding_bits > 7 {
-             return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "Invalid padding bits > 7".to_string(), file!().to_string(), line!()));
-        }
+        ensure_padding_bits_within_range(padding_bits)?;
         if bytes.is_empty() && padding_bits != 0 {
              return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "Empty BitString must have 0 padding bits".to_string(), file!().to_string(), line!()));
         }
@@ -54,9 +67,7 @@ impl DERImplicitlyTaggable for ASN1BitString {
                      return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "Empty BIT STRING content (missing padding byte)".to_string(), file!().to_string(), line!()));
                 }
                 let padding_bits = bytes[0];
-                if padding_bits > 7 {
-                     return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "Invalid padding bits in BIT STRING".to_string(), file!().to_string(), line!()));
-                }
+                ensure_padding_bits_within_range(padding_bits)?;
                 
                 let data = bytes.slice(1..);
                 if data.is_empty() && padding_bits != 0 {
@@ -98,9 +109,7 @@ impl BERImplicitlyTaggable for ASN1BitString {
                       return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "Empty BIT STRING content".to_string(), file!().to_string(), line!()));
                  }
                  let padding_bits = bytes[0];
-                 if padding_bits > 7 {
-                       return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "Invalid padding bits".to_string(), file!().to_string(), line!()));
-                 }
+                 ensure_padding_bits_within_range(padding_bits)?;
                  Ok(ASN1BitString { bytes: bytes.slice(1..), padding_bits })
              },
              crate::asn1::Content::Constructed(collection) => {

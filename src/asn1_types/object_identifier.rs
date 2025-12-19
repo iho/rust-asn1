@@ -174,33 +174,24 @@ impl BERImplicitlyTaggable for ASN1ObjectIdentifier {
 }
 
 // Helpers
-fn write_oid_subidentifier(val: u64, buf: &mut Vec<u8>) {
-    crate::der::IdentfierWriter::write_identifier(buf, ASN1Identifier::new(val, crate::asn1_types::TagClass::Universal), false);
-    // Wait, write_identifier writes TAG.
-    // OID subidentifier is just the value encoded in VLQ (base 128).
-    // IdentfierWriter writes TAG then VALUE?
-    // No, `write_identifier` logic in `der.rs` implemented for `Vec<u8>` writes Tag byte(s) then tag number.
-    // OID component is NOT a tag. It is just the VLQ integer.
-    // But VLQ logic is same as tag number encoding (base 128).
-    
-    // I need `write_asn1_discipline_uint` which is in `der.rs` but not exposed.
-    // I should expose `write_asn1_discipline_uint` in `der.rs` or copy it.
-    // I'll copy it for simplicity or make it pub crate in `der.rs`.
-    
-    // Copying logic:
-    let mut n = val;
-    if n == 0 {
+fn write_oid_subidentifier(mut value: u64, buf: &mut Vec<u8>) {
+    if value == 0 {
         buf.push(0);
         return;
     }
-    let mut bytes = Vec::new();
-    while n > 0 {
-        bytes.push((n & 0x7F) as u8);
-        n >>= 7;
+
+    let mut stack = Vec::new();
+    loop {
+        stack.push((value & 0x7F) as u8);
+        value >>= 7;
+        if value == 0 {
+            break;
+        }
     }
-    for (i, b) in bytes.iter().rev().enumerate() {
-        let mut byte = *b;
-        if i != bytes.len() - 1 {
+
+    for i in (0..stack.len()).rev() {
+        let mut byte = stack[i];
+        if i != 0 {
             byte |= 0x80;
         }
         buf.push(byte);
@@ -208,22 +199,39 @@ fn write_oid_subidentifier(val: u64, buf: &mut Vec<u8>) {
 }
 
 fn read_oid_subidentifier(data: &mut Bytes) -> Result<u64, ASN1Error> {
-    // Read VLQ
-    // Same as tag number logic.
     let mut value: u64 = 0;
+    let mut first_byte = true;
     loop {
         if data.is_empty() {
-             return Err(ASN1Error::new(ErrorCode::TruncatedASN1Field, "".to_string(), file!().to_string(), line!()));
+            return Err(ASN1Error::new(
+                ErrorCode::TruncatedASN1Field,
+                "".to_string(),
+                file!().to_string(),
+                line!(),
+            ));
         }
         let byte = data.split_to(1)[0];
-        
-        // Check leading zero for first byte?
-        // Swift: if firstByte == 0x80 ... return error.
-        if value == 0 && byte == 0x80 {
-             return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "OID subidentifier encoded with leading 0 byte".to_string(), file!().to_string(), line!()));
+
+        if first_byte && byte == 0x80 {
+            return Err(ASN1Error::new(
+                ErrorCode::InvalidASN1Object,
+                "OID subidentifier encoded with leading 0 byte".to_string(),
+                file!().to_string(),
+                line!(),
+            ));
         }
-        
-        value = (value << 7) | ((byte & 0x7F) as u64);
+        first_byte = false;
+
+        if value > (u64::MAX >> 7) {
+            return Err(ASN1Error::new(
+                ErrorCode::InvalidASN1Object,
+                "OID subidentifier exceeds u64 capacity".to_string(),
+                file!().to_string(),
+                line!(),
+            ));
+        }
+        value = (value << 7) | u64::from(byte & 0x7F);
+
         if (byte & 0x80) == 0 {
             break;
         }
@@ -237,6 +245,7 @@ mod tests {
     use crate::asn1_types::ASN1Identifier;
     use crate::ber;
     use crate::der;
+    use bytes::Bytes;
 
     #[test]
     fn test_oid_new_errors() {
@@ -269,9 +278,9 @@ mod tests {
     fn test_oid_new_zero_first_subidentifier_hits_zero_write_path() {
         // firstByteVal = 0 * 40 + 0 => write_oid_subidentifier(0, ...)
         let oid = ASN1ObjectIdentifier::new(&[0, 0]).unwrap();
-        assert_eq!(oid.bytes.as_ref(), [0x00, 0x00]);
+        assert_eq!(oid.bytes.as_ref(), [0x00]);
         let comps = oid.oid_components().unwrap();
-        assert_eq!(comps, vec![0, 0, 0]);
+        assert_eq!(comps, vec![0, 0]);
     }
 
     #[test]
@@ -324,5 +333,40 @@ mod tests {
         let mut data = Bytes::new();
         let res = read_oid_subidentifier(&mut data);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_write_oid_subidentifier_encodes_multibyte_values() {
+        let mut buf = Vec::new();
+        write_oid_subidentifier(200, &mut buf);
+        assert_eq!(buf, vec![0x81, 0x48], "expected continuation bit only on first byte");
+    }
+
+    #[test]
+    fn test_read_oid_subidentifier_round_trip_large_value() {
+        let mut buf = Vec::new();
+        write_oid_subidentifier(9_876_543, &mut buf);
+        let mut bytes = Bytes::from(buf.clone());
+        let parsed = read_oid_subidentifier(&mut bytes).unwrap();
+        assert_eq!(parsed, 9_876_543);
+        assert!(bytes.is_empty());
+        assert_eq!(buf.last().unwrap() & 0x80, 0);
+        assert!(buf[..buf.len() - 1].iter().all(|b| b & 0x80 != 0));
+    }
+
+    #[test]
+    fn test_read_oid_subidentifier_rejects_leading_zero_encoding() {
+        let mut data = Bytes::from_static(&[0x80, 0x01]);
+        let err = read_oid_subidentifier(&mut data).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::InvalidASN1Object);
+    }
+
+    #[test]
+    fn test_read_oid_subidentifier_overflow_detected() {
+        let mut encoded = vec![0xFF; 10];
+        encoded.push(0x7F);
+        let mut data = Bytes::from(encoded);
+        let err = read_oid_subidentifier(&mut data).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::InvalidASN1Object);
     }
 }

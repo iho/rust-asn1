@@ -17,4 +17,4 @@ install_mutant:
 	cargo install --locked cargo-mutants
 
 mutant:
-	cargo mutants
+	cargo mutants --timeout 20 --jobs 10

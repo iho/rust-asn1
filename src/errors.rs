@@ -33,6 +33,9 @@ impl ASN1Error {
 impl PartialEq for ASN1Error {
     fn eq(&self, other: &Self) -> bool {
         self.backing.code == other.backing.code
+            && self.backing.reason == other.backing.reason
+            && self.backing.file == other.backing.file
+            && self.backing.line == other.backing.line
     }
 }
 
@@ -41,6 +44,9 @@ impl Eq for ASN1Error {}
 impl std::hash::Hash for ASN1Error {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.backing.code.hash(state);
+        self.backing.reason.hash(state);
+        self.backing.file.hash(state);
+        self.backing.line.hash(state);
     }
 }
 

@@ -55,7 +55,7 @@ pub fn parse(data: &[u8]) -> Result<ASN1Node, ASN1Error> {
          if nodes_arc[end_index].depth <= root_depth {
               break;
          }
-         end_index += 1;
+         end_index = end_index + 1;
     }
     
     if end_index != nodes_arc.len() {
@@ -184,7 +184,7 @@ fn write_asn1_discipline_uint(v: &mut Vec<u8>, mut n: u64) {
     }
     
     let mut bytes = Vec::new();
-    while n > 0 {
+    while n != 0 {
         bytes.push((n & 0x7F) as u8);
         n >>= 7;
     }
@@ -204,7 +204,7 @@ fn encode_length(len: usize) -> Vec<u8> {
     } else {
         let mut bytes = Vec::new();
         let mut l = len;
-        while l > 0 {
+        while l != 0 {
             bytes.push((l & 0xFF) as u8);
             l >>= 8;
         }

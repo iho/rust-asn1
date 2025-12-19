@@ -10,6 +10,14 @@ pub enum EncodingRules {
     Distinguished,
 }
 
+fn minimal_octet_len(value: u64) -> usize {
+    if value == 0 {
+        return 1;
+    }
+    let significant_bits = 64 - value.leading_zeros();
+    ((significant_bits + 7) / 8) as usize
+}
+
 impl EncodingRules {
     pub fn indefinite_length_allowed(&self) -> bool {
         matches!(self, EncodingRules::Basic)
@@ -180,36 +188,42 @@ impl ParseResult {
                     depth,
                     is_constructed: true,
                     encoded_bytes: Bytes::new(), // placeholder
-                    data_bytes: None
+                    data_bytes: None,
                 });
                 let last_index = nodes.len() - 1;
-                
-                // Parse until end marker
+
                 loop {
                     if data.is_empty() {
-                        // Error? Swift loop condition: while data.count > 0 && nodes.last!.isEndMarker == false
-                        // If data runs out before end marker, it will fail in next recursive call or loop
-                        break; 
-                    }
-                    if let Some(last) = nodes.last() {
-                         if last.is_end_marker() {
-                             break;
-                         }
+                        return Err(ASN1Error::new(
+                            ErrorCode::TruncatedASN1Field,
+                            "Indefinite-length field missing end-of-content marker".to_string(),
+                            file!().to_string(),
+                            line!(),
+                        ));
                     }
                     Self::_parse_node(data, rules, depth + 1, nodes)?;
+                    if matches!(nodes.last(), Some(node) if node.is_end_marker()) {
+                        break;
+                    }
                 }
-                
-                // Pop endmarker
-                if let Some(last) = nodes.last() {
-                     if !last.is_end_marker() {
-                         // Should have been EOC
-                         // But if loop broke due to data empty?
-                     }
+
+                let end_marker = nodes.pop().ok_or_else(|| {
+                    ASN1Error::new(
+                        ErrorCode::InvalidASN1Object,
+                        "Indefinite-length field missing terminal marker".to_string(),
+                        file!().to_string(),
+                        line!(),
+                    )
+                })?;
+                if !end_marker.is_end_marker() {
+                    return Err(ASN1Error::new(
+                        ErrorCode::InvalidASN1Object,
+                        "Indefinite-length field terminated without end-of-content marker".to_string(),
+                        file!().to_string(),
+                        line!(),
+                    ));
                 }
-                // Swift: let endMarker = nodes.popLast()!
-                let _end_marker = nodes.pop().unwrap(); // Safety: we pushed at least one
-                
-                // Calculate encoded bytes size
+
                 let consumed = original_data.len() - data.len();
                 let encoded_bytes = original_data.slice(0..consumed);
                 nodes[last_index].encoded_bytes = encoded_bytes;
@@ -240,31 +254,67 @@ fn _read_asn1_length(data: &mut Bytes, minimal_encoding: bool) -> Result<ASN1Len
     if (first_byte & 0x80) == 0x80 {
         // Long form
         let field_length = (first_byte & 0x7F) as usize;
+        if field_length == 0 {
+            return Err(ASN1Error::new(
+                ErrorCode::InvalidASN1Object,
+                "Long-form length must encode at least one byte".to_string(),
+                file!().to_string(),
+                line!(),
+            ));
+        }
         if data.len() < field_length {
-             return Err(ASN1Error::new(ErrorCode::TruncatedASN1Field, "".to_string(), file!().to_string(), line!()));
+            return Err(ASN1Error::new(
+                ErrorCode::TruncatedASN1Field,
+                "".to_string(),
+                file!().to_string(),
+                line!(),
+            ));
         }
         let length_bytes = data.split_to(field_length);
         let mut length: u64 = 0;
-        for b in length_bytes.iter() {
-            // Check overflow? u64 is large enough for reasonable ASN.1
-            length = (length << 8) | (*b as u64);
+        for &b in length_bytes.iter() {
+            length = length
+                .checked_mul(256)
+                .ok_or_else(|| {
+                    ASN1Error::new(
+                        ErrorCode::InvalidASN1Object,
+                        "Field length exceeds supported range".to_string(),
+                        file!().to_string(),
+                        line!(),
+                    )
+                })?;
+            length = length
+                .checked_add(b as u64)
+                .ok_or_else(|| {
+                    ASN1Error::new(
+                        ErrorCode::InvalidASN1Object,
+                        "Field length exceeds supported range".to_string(),
+                        file!().to_string(),
+                        line!(),
+                    )
+                })?;
         }
-        
+
         if minimal_encoding {
-            let required_bits = 64 - length.leading_zeros(); // rough check
-            // Swift logic:
-            // let requiredBits = UInt.bitWidth - length.leadingZeroBitCount
-            // case 0...7: require short form.
-            if required_bits <= 7 && field_length > 0 { // 0x81 0x01 is invalid if 0x01 suffices
-                 // Actually length < 128 should be short form.
-                 if length < 128 {
-                      return Err(ASN1Error::new(ErrorCode::UnsupportedFieldLength, "Field length encoded in long form, but DER requires short form".to_string(), file!().to_string(), line!()));
-                 }
+            if length < 128 {
+                return Err(ASN1Error::new(
+                    ErrorCode::UnsupportedFieldLength,
+                    "Field length encoded in long form, but DER requires short form".to_string(),
+                    file!().to_string(),
+                    line!(),
+                ));
             }
-            // case 8...: fieldLength should be min required.
-             // implementation detail omitted for brevity but should be there
+            let required_bytes = minimal_octet_len(length);
+            if field_length > required_bytes {
+                return Err(ASN1Error::new(
+                    ErrorCode::UnsupportedFieldLength,
+                    "Field length encoded in excessive number of bytes".to_string(),
+                    file!().to_string(),
+                    line!(),
+                ));
+            }
         }
-        
+
         Ok(ASN1Length::Definite(length))
     } else {
         Ok(ASN1Length::Definite(first_byte as u64))
@@ -281,7 +331,15 @@ fn read_asn1_discipline_uint(data: &mut Bytes) -> Result<(u64, usize), ASN1Error
         }
         let byte = data.split_to(1)[0];
         read += 1;
-        value = (value << 7) | ((byte & 0x7F) as u64);
+        if value > (u64::MAX >> 7) {
+            return Err(ASN1Error::new(
+                ErrorCode::InvalidASN1Object,
+                "Base-128 integer exceeds u64 range".to_string(),
+                file!().to_string(),
+                line!(),
+            ));
+        }
+        value = (value << 7) | u64::from(byte & 0x7F);
         if (byte & 0x80) == 0 {
             break;
         }
@@ -352,7 +410,7 @@ impl Iterator for ASN1NodeCollectionIterator {
             if self.nodes[end_index].depth <= node.depth {
                 break;
             }
-            end_index += 1;
+            end_index = end_index + 1;
         }
         
         self.range.start = end_index;
@@ -401,8 +459,10 @@ pub enum Content {
 
 
 #[cfg(test)]
-mod tests {
+    mod tests {
     use super::*;
+    use bytes::{BytesMut};
+    use std::sync::Arc;
 
     #[test]
     fn test_parse_empty_data() {
@@ -617,6 +677,187 @@ mod tests {
         assert!(!res.nodes.is_empty());
         assert!(res.nodes[0].is_constructed);
         assert_eq!(res.nodes[0].encoded_bytes.as_ref(), data.as_slice());
+    }
+
+    #[test]
+    fn test_der_rejects_indefinite_length_encoding() {
+        let data = vec![
+            0x30, 0x80, // SEQUENCE, indefinite length
+            0x00, 0x00, // EOC
+        ];
+
+        let err = ParseResult::parse(Bytes::from(data), EncodingRules::Distinguished).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::UnsupportedFieldLength);
+    }
+
+    #[test]
+    fn test_indefinite_length_missing_end_marker_rejected() {
+        let data = vec![
+            0x30, 0x80, // SEQUENCE, indefinite length
+            0x02, 0x01, 0x00, // INTEGER
+                              // Missing end-of-content marker
+        ];
+
+        let err = ParseResult::parse(Bytes::from(data), EncodingRules::Basic).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::TruncatedASN1Field);
+    }
+
+    #[test]
+    fn test_read_asn1_length_long_form_with_exact_bytes() {
+        let mut data = Bytes::from(vec![0x82, 0x01, 0x02]);
+        let result = super::_read_asn1_length(&mut data, false).unwrap();
+        match result {
+            super::ASN1Length::Definite(value) => assert_eq!(value, 0x0102),
+            super::ASN1Length::Indefinite => panic!("expected definite length"),
+        }
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn test_read_asn1_length_rejects_excessive_length_bytes() {
+        let mut data = Bytes::from(vec![0x83, 0x00, 0x01, 0x02]);
+        let err = super::_read_asn1_length(&mut data, true).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::UnsupportedFieldLength);
+    }
+
+    #[test]
+    fn test_read_asn1_length_rejects_overlong_encoding() {
+        let mut data = Bytes::from(vec![0x83, 0x00, 0x00, 0x80]); // 128 encoded using 3 bytes
+        let err = super::_read_asn1_length(&mut data, true).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::UnsupportedFieldLength);
+    }
+
+    #[test]
+    fn test_der_allows_long_form_for_length_128() {
+        let mut payload = BytesMut::from(&[0x04, 0x81, 0x80][..]);
+        payload.extend_from_slice(&vec![0u8; 128]);
+        assert!(ParseResult::parse(payload.freeze(), EncodingRules::Distinguished).is_ok());
+    }
+
+    #[test]
+    fn test_read_asn1_discipline_uint_multi_byte() {
+        let mut data = Bytes::from(vec![0x81, 0x01]);
+        let (value, read) = super::read_asn1_discipline_uint(&mut data).unwrap();
+        assert_eq!(value, 129);
+        assert_eq!(read, 2);
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn test_read_asn1_discipline_uint_truncated_errors() {
+        let mut data = Bytes::from(vec![0x80]);
+        let err = super::read_asn1_discipline_uint(&mut data).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::TruncatedASN1Field);
+    }
+
+    #[test]
+    fn test_read_asn1_discipline_uint_overflow_errors() {
+        let mut bytes = vec![0xFF; 10];
+        bytes.push(0x7F);
+        let mut data = Bytes::from(bytes);
+        let err = super::read_asn1_discipline_uint(&mut data).unwrap_err();
+        assert_eq!(err.code(), ErrorCode::InvalidASN1Object);
+    }
+
+    #[test]
+    fn test_minimal_octet_len_values() {
+        assert_eq!(super::minimal_octet_len(0), 1);
+        assert_eq!(super::minimal_octet_len(1), 1);
+        assert_eq!(super::minimal_octet_len(0x80), 1);
+        assert_eq!(super::minimal_octet_len(u64::MAX), 8);
+    }
+
+    fn encode_base128(mut value: u64) -> Vec<u8> {
+        if value == 0 {
+            return vec![0];
+        }
+        let mut stack = Vec::new();
+        while value > 0 {
+            stack.push((value & 0x7F) as u8);
+            value >>= 7;
+        }
+        let mut out = Vec::with_capacity(stack.len());
+        for idx in (0..stack.len()).rev() {
+            let mut byte = stack[idx];
+            if idx != 0 {
+                byte |= 0x80;
+            }
+            out.push(byte);
+        }
+        out
+    }
+
+    #[test]
+    fn test_read_asn1_discipline_uint_accepts_max_value() {
+        let encoded = encode_base128(u64::MAX);
+        let mut data = Bytes::from(encoded.clone());
+        let (decoded, consumed) = super::read_asn1_discipline_uint(&mut data).unwrap();
+        assert_eq!(decoded, u64::MAX);
+        assert_eq!(consumed, encoded.len());
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn test_node_collection_iterator_yields_children_in_order() {
+        fn bytes(data: &[u8]) -> Bytes {
+            Bytes::from(data.to_vec())
+        }
+
+        let nodes = Arc::new(vec![
+            ParserNode {
+                identifier: ASN1Identifier::SEQUENCE,
+                depth: 1,
+                is_constructed: true,
+                encoded_bytes: bytes(&[0x30, 0x06]),
+                data_bytes: None,
+            },
+            ParserNode {
+                identifier: ASN1Identifier::INTEGER,
+                depth: 2,
+                is_constructed: false,
+                encoded_bytes: bytes(&[0x02, 0x01, 0x01]),
+                data_bytes: Some(bytes(&[0x01])),
+            },
+            ParserNode {
+                identifier: ASN1Identifier::SEQUENCE,
+                depth: 2,
+                is_constructed: true,
+                encoded_bytes: bytes(&[0x30, 0x03]),
+                data_bytes: None,
+            },
+            ParserNode {
+                identifier: ASN1Identifier::INTEGER,
+                depth: 3,
+                is_constructed: false,
+                encoded_bytes: bytes(&[0x02, 0x01, 0x02]),
+                data_bytes: Some(bytes(&[0x02])),
+            },
+        ]);
+
+        let collection = ASN1NodeCollection::new(nodes.clone(), 1..nodes.len(), 1);
+        let mut iter = collection.into_iter();
+
+        let first = iter.next().expect("first child");
+        match first.content {
+            Content::Primitive(bytes) => assert_eq!(bytes.as_ref(), &[0x01]),
+            Content::Constructed(_) => panic!("expected primitive child"),
+        }
+
+        let second = iter.next().expect("second child");
+        match second.content {
+            Content::Constructed(child_collection) => {
+                let mut child_iter = child_collection.into_iter();
+                let grandchild = child_iter.next().expect("grandchild");
+                match grandchild.content {
+                    Content::Primitive(bytes) => assert_eq!(bytes.as_ref(), &[0x02]),
+                    Content::Constructed(_) => panic!("expected primitive grandchild"),
+                }
+                assert!(child_iter.next().is_none());
+            }
+            Content::Primitive(_) => panic!("expected constructed child"),
+        }
+
+        assert!(iter.next().is_none());
     }
 }
 

@@ -100,15 +100,23 @@ impl DERImplicitlyTaggable for UTCTime {
         match node.content {
             crate::asn1::Content::Primitive(bytes) => {
                 let s = String::from_utf8(bytes.to_vec()).map_err(|_| ASN1Error::new(ErrorCode::InvalidStringRepresentation, "Invalid UTF-8".to_string(), file!().to_string(), line!()))?;
-                if !s.ends_with('Z') {
-                     return Err(ASN1Error::new(ErrorCode::InvalidStringRepresentation, "UTCTime must end with Z in DER".to_string(), file!().to_string(), line!()));
+                const UTCTIME_LEN: usize = 13; // YYMMDDHHMMSSZ
+                if s.len() != UTCTIME_LEN || !s.ends_with('Z') {
+                    return Err(ASN1Error::new(
+                        ErrorCode::InvalidStringRepresentation,
+                        "UTCTime must match YYMMDDHHMMSSZ".to_string(),
+                        file!().to_string(),
+                        line!(),
+                    ));
                 }
-                
-                // Parse YYMMDDHHMMSSZ
-                // We need to handle windowing.
-                // Scan year first.
-                if s.len() < 2 {
-                      return Err(ASN1Error::new(ErrorCode::InvalidStringRepresentation, "Invalid UTCTime length".to_string(), file!().to_string(), line!()));
+                let body = &s[..UTCTIME_LEN - 1];
+                if !body.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(ASN1Error::new(
+                        ErrorCode::InvalidStringRepresentation,
+                        "UTCTime must contain only digits before the Z suffix".to_string(),
+                        file!().to_string(),
+                        line!(),
+                    ));
                 }
                 
                 let naive = NaiveDateTime::parse_from_str(&s, "%y%m%d%H%M%SZ").map_err(|_| ASN1Error::new(ErrorCode::InvalidStringRepresentation, "Invalid UTCTime format".to_string(), file!().to_string(), line!()))?;

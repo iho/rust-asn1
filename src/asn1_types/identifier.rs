@@ -87,11 +87,26 @@ impl ASN1Identifier {
 
 impl fmt::Display for ASN1Identifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "ASN1Identifier(tagNumber: {}, tagClass: {:?})",
-            self.tag_number, self.tag_class
-        )
+        let class_str = match self.tag_class {
+            TagClass::Universal => "Universal",
+            TagClass::Application => "Application",
+            TagClass::ContextSpecific => "ContextSpecific",
+            TagClass::Private => "Private",
+        };
+
+        if let Some(short) = self.short_form() {
+            write!(
+                f,
+                "ASN1Identifier(tagNumber: {}, tagClass: {}, shortForm: 0x{:02X})",
+                self.tag_number, class_str, short
+            )
+        } else {
+            write!(
+                f,
+                "ASN1Identifier(tagNumber: {}, tagClass: {}, longForm)",
+                self.tag_number, class_str
+            )
+        }
     }
 }
 
@@ -113,5 +128,13 @@ mod tests {
         assert_eq!(TagClass::Application.top_byte_flags(), 0x40);
         assert_eq!(TagClass::ContextSpecific.top_byte_flags(), 0x80);
         assert_eq!(TagClass::Private.top_byte_flags(), 0xC0);
+    }
+
+    #[test]
+    fn test_identifier_display_includes_fields() {
+        let id = ASN1Identifier::new(42, TagClass::ContextSpecific);
+        let text = format!("{}", id);
+        assert!(text.contains("tagNumber: 42"), "display text missing tag number: {}", text);
+        assert!(text.contains("ContextSpecific"), "display text missing tag class: {}", text);
     }
 }

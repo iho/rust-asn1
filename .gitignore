@@ -4,3 +4,4 @@ swift-asn1
 coverage
 lcov.info
 mutants.out/
+mutants.out.old/
