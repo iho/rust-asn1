@@ -1,3 +1,4 @@
+#[cfg_attr(test, mutants::skip)]
 fn main() {
     println!("Hello, world!");
 }

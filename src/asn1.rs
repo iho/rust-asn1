@@ -434,6 +434,50 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_long_form_tag_number_too_small_rejected() {
+        // Long-form tag encoding (0x1F) must not be used for tag numbers < 0x1F.
+        // Here the tag number is 0x1E, which must be rejected.
+        let data = Bytes::from(vec![0x1F, 0x1E, 0x00]);
+        let res = ParseResult::parse(data, EncodingRules::Distinguished);
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().code(), ErrorCode::InvalidASN1Object);
+    }
+
+    #[test]
+    fn test_parse_long_form_tag_number_boundary_ok() {
+        // Tag number 0x1F is the smallest value that is valid to encode in long form.
+        let data = Bytes::from(vec![0x1F, 0x1F, 0x00]);
+        let res = ParseResult::parse(data, EncodingRules::Distinguished);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_parse_long_form_tag_number_above_boundary_ok() {
+        // A value above the boundary should also be accepted.
+        let data = Bytes::from(vec![0x1F, 0x20, 0x00]);
+        let res = ParseResult::parse(data, EncodingRules::Distinguished);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_der_rejects_non_minimal_length_encoding() {
+        // DER requires minimal length encoding.
+        // Length 1 encoded as 0x81 0x01 is non-minimal and must be rejected in DER.
+        let data = Bytes::from(vec![0x02, 0x81, 0x01, 0x00]);
+        let res = ParseResult::parse(data, EncodingRules::Distinguished);
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().code(), ErrorCode::UnsupportedFieldLength);
+    }
+
+    #[test]
+    fn test_ber_allows_non_minimal_length_encoding() {
+        // BER (Basic) allows non-minimal length encodings.
+        let data = Bytes::from(vec![0x02, 0x81, 0x01, 0x00]);
+        let res = ParseResult::parse(data, EncodingRules::Basic);
+        assert!(res.is_ok());
+    }
+
+    #[test]
     fn test_parse_extra_data() {
         let data = Bytes::from(vec![0x02, 0x01, 0x00, 0xFF]);
         // parse returns a list of nodes.
@@ -458,6 +502,48 @@ mod tests {
         // Actually, just checking ParseResult::parse which is what is tested here.
         let res = ParseResult::parse(Bytes::from(data), EncodingRules::Distinguished);
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_recursion_limit_boundary_ok() {
+        // MAXIMUM_NODE_DEPTH is 50, and the parser checks the depth at the start of each
+        // _parse_node call.
+        //
+        // With BER indefinite length nesting, the deepest call is typically the innermost
+        // end-of-content (EOC) marker, which is one level deeper than the innermost
+        // constructed node.
+        //
+        // 49 nested sequences => deepest EOC is at depth 50, which should be allowed.
+        let mut data = Vec::new();
+        for _ in 0..49 {
+            data.push(0x30);
+            data.push(0x80);
+        }
+        for _ in 0..49 {
+            data.push(0x00);
+            data.push(0x00);
+        }
+
+        let res = ParseResult::parse(Bytes::from(data), EncodingRules::Basic);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_recursion_limit_boundary_err() {
+        // 50 nested sequences => deepest EOC is at depth 51, which should exceed the limit.
+        let mut data = Vec::new();
+        for _ in 0..50 {
+            data.push(0x30);
+            data.push(0x80);
+        }
+        for _ in 0..50 {
+            data.push(0x00);
+            data.push(0x00);
+        }
+
+        let res = ParseResult::parse(Bytes::from(data), EncodingRules::Basic);
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().code(), ErrorCode::InvalidASN1Object);
     }
 
     #[test]
@@ -515,6 +601,22 @@ mod tests {
             data_bytes: Some(Bytes::from(vec![])),
         };
         assert!(!node3.is_end_marker());
+    }
+
+    #[test]
+    fn test_indefinite_constructed_encoded_bytes_matches_input() {
+        // Verify that encoded_bytes for an indefinite-length constructed node covers the entire
+        // encoding up to (and including) the end-of-content marker.
+        let data = vec![
+            0x30, 0x80, // SEQUENCE, indefinite length
+            0x02, 0x01, 0x00, // INTEGER (0)
+            0x00, 0x00, // EOC
+        ];
+
+        let res = ParseResult::parse(Bytes::from(data.clone()), EncodingRules::Basic).unwrap();
+        assert!(!res.nodes.is_empty());
+        assert!(res.nodes[0].is_constructed);
+        assert_eq!(res.nodes[0].encoded_bytes.as_ref(), data.as_slice());
     }
 }
 
