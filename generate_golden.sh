@@ -52,7 +52,19 @@ gen_asn1 "generalized_time.der" "asn1 = GENERALIZEDTIME:20230101120000Z"
 # YYMMDDHHMMSSZ
 gen_asn1 "utc_time.der" "asn1 = UTCTIME:230101120000Z"
 
-# Explicit Tagging (implied by genconf structure if nested, but here top level)
-# We mainly test basic types first as per porting status.
+# NULL
+gen_asn1 "null.der" "asn1 = NULL"
+
+# BitString
+# OpenSSL syntax: BITSTRING:value
+# "FORMAT:HEX,BITSTRING:0x1234" ?
+# simple usage:
+gen_asn1 "bit_string.der" "asn1 = BITSTRING:0A3B5F291CD"
+
+# Strings
+gen_asn1 "utf8_string.der" "asn1 = UTF8String:Hello UTF8"
+gen_asn1 "printable_string.der" "asn1 = PRINTABLESTRING:Hello Printable"
+gen_asn1 "ia5_string.der" "asn1 = IA5STRING:Hello IA5"
+gen_asn1 "numeric_string.der" "asn1 = NUMERICSTRING:1234567890"
 
 echo "Golden files generated in $DIR"

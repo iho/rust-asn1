@@ -1,9 +1,10 @@
-use rust_asn1::asn1_types::{ASN1Boolean, ASN1Integer, ASN1OctetString, ASN1ObjectIdentifier, GeneralizedTime, UTCTime};
+use rust_asn1::asn1_types::{ASN1Boolean, ASN1Integer, ASN1OctetString, ASN1ObjectIdentifier, GeneralizedTime, UTCTime, ASN1Null, ASN1BitString, ASN1UTF8String, ASN1PrintableString, ASN1IA5String, ASN1NumericString};
 use rust_asn1::der::{DERParseable, Serializer};
 use num_bigint::BigInt;
 use chrono::{Utc, TimeZone};
 use std::fs;
 use std::path::Path;
+use bytes::Bytes;
 
 fn read_golden(name: &str) -> Vec<u8> {
     let path = Path::new("tests/golden").join(name);
@@ -122,6 +123,74 @@ fn test_utc_time() {
     
     let expected = Utc.with_ymd_and_hms(2023, 1, 1, 12, 0, 0).unwrap();
     assert_eq!(val, UTCTime(expected));
+    
+    let mut serializer = Serializer::new();
+    serializer.serialize(&val).expect("Serialize failed");
+    assert_eq!(serializer.serialized_bytes(), bytes);
+}
+
+#[test]
+fn test_null() {
+    let bytes = read_golden("null.der");
+    let val = ASN1Null::from_der_bytes(&bytes).expect("Parse failed");
+    assert_eq!(val, ASN1Null);
+    
+    let mut serializer = Serializer::new();
+    serializer.serialize(&val).expect("Serialize failed");
+    assert_eq!(serializer.serialized_bytes(), bytes);
+}
+
+#[test]
+fn test_bit_string() {
+    let bytes = read_golden("bit_string.der");
+    let val = ASN1BitString::from_der_bytes(&bytes).expect("Parse failed");
+    // OpenSSL encoded the string "0A3B5F291CD" as ASCII bytes, so padding is 0.
+    assert_eq!(val.padding_bits, 0); 
+    assert_eq!(val.bytes.len(), 11);
+    
+    let mut serializer = Serializer::new();
+    serializer.serialize(&val).expect("Serialize failed");
+    assert_eq!(serializer.serialized_bytes(), bytes);
+}
+
+#[test]
+fn test_utf8_string() {
+    let bytes = read_golden("utf8_string.der");
+    let val = ASN1UTF8String::from_der_bytes(&bytes).expect("Parse failed");
+    assert_eq!(val.0, "Hello UTF8");
+    
+    let mut serializer = Serializer::new();
+    serializer.serialize(&val).expect("Serialize failed");
+    assert_eq!(serializer.serialized_bytes(), bytes);
+}
+
+#[test]
+fn test_printable_string() {
+    let bytes = read_golden("printable_string.der");
+    let val = ASN1PrintableString::from_der_bytes(&bytes).expect("Parse failed");
+    assert_eq!(val.0, "Hello Printable");
+    
+    let mut serializer = Serializer::new();
+    serializer.serialize(&val).expect("Serialize failed");
+    assert_eq!(serializer.serialized_bytes(), bytes);
+}
+
+#[test]
+fn test_ia5_string() {
+    let bytes = read_golden("ia5_string.der");
+    let val = ASN1IA5String::from_der_bytes(&bytes).expect("Parse failed");
+    assert_eq!(val.0, "Hello IA5");
+    
+    let mut serializer = Serializer::new();
+    serializer.serialize(&val).expect("Serialize failed");
+    assert_eq!(serializer.serialized_bytes(), bytes);
+}
+
+#[test]
+fn test_numeric_string() {
+    let bytes = read_golden("numeric_string.der");
+    let val = ASN1NumericString::from_der_bytes(&bytes).expect("Parse failed");
+    assert_eq!(val.0, "1234567890");
     
     let mut serializer = Serializer::new();
     serializer.serialize(&val).expect("Serialize failed");

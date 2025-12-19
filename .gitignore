@@ -1,2 +1,5 @@
 /target
 swift-asn1
+*.profraw
+coverage
+lcov.info
