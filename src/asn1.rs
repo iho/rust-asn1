@@ -331,15 +331,18 @@ fn read_asn1_discipline_uint(data: &mut Bytes) -> Result<(u64, usize), ASN1Error
         }
         let byte = data.split_to(1)[0];
         read += 1;
-        if value > (u64::MAX >> 7) {
-            return Err(ASN1Error::new(
-                ErrorCode::InvalidASN1Object,
-                "Base-128 integer exceeds u64 range".to_string(),
-                file!().to_string(),
-                line!(),
-            ));
-        }
-        value = (value << 7) | u64::from(byte & 0x7F);
+        let chunk = u64::from(byte & 0x7F);
+        value = value
+            .checked_mul(128)
+            .and_then(|v| v.checked_add(chunk))
+            .ok_or_else(|| {
+                ASN1Error::new(
+                    ErrorCode::InvalidASN1Object,
+                    "Base-128 integer exceeds u64 range".to_string(),
+                    file!().to_string(),
+                    line!(),
+                )
+            })?;
         if (byte & 0x80) == 0 {
             break;
         }
@@ -405,12 +408,14 @@ impl Iterator for ASN1NodeCollectionIterator {
         // "nodeCollection = result.nodes.prefix { $0.depth > firstNode.depth }"
         
         // We need to scan forward to find the size of the subtree.
-        let mut end_index = index + 1;
-        while end_index < self.range.end {
-            if self.nodes[end_index].depth <= node.depth {
+        let mut search_range = self.range.clone();
+        let _ = search_range.next(); // drop current node index
+        let mut end_index = self.range.end;
+        for i in search_range {
+            if self.nodes[i].depth <= node.depth {
+                end_index = i;
                 break;
             }
-            end_index = end_index + 1;
         }
         
         self.range.start = end_index;

@@ -1,7 +1,7 @@
-use crate::asn1::{ASN1Node, ASN1NodeCollection, ASN1NodeCollectionIterator, ParseResult, EncodingRules};
+use crate::asn1::{ASN1Node, ASN1NodeCollection, ASN1NodeCollectionIterator, EncodingRules, ParseResult};
 use crate::asn1_types::ASN1Identifier;
 use crate::errors::{ASN1Error, ErrorCode};
-use bytes::{Bytes, BytesMut, BufMut};
+use bytes::{BufMut, Bytes, BytesMut};
 
 pub trait DERParseable: Sized {
     fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error>;
@@ -37,44 +37,54 @@ pub trait DERImplicitlyTaggable: DERParseable + DERSerializable {
 pub fn parse(data: &[u8]) -> Result<ASN1Node, ASN1Error> {
     let bytes = Bytes::copy_from_slice(data);
     let result = ParseResult::parse(bytes, EncodingRules::Distinguished)?;
-    
-    if result.nodes.is_empty() {
-         return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "No ASN.1 nodes parsed".to_string(), file!().to_string(), line!()));
-    }
 
-    let nodes_arc = std::sync::Arc::new(result.nodes); 
-    let first_identifier = nodes_arc[0].identifier;
-    let first_encoded_bytes = nodes_arc[0].encoded_bytes.clone();
-    let first_is_constructed = nodes_arc[0].is_constructed;
-    let root_depth = nodes_arc[0].depth;
-    let first_data_bytes = nodes_arc[0].data_bytes.clone();
+    let first = result
+        .nodes
+        .first()
+        .ok_or_else(|| {
+            ASN1Error::new(
+                ErrorCode::InvalidASN1Object,
+                "No ASN.1 nodes parsed".to_string(),
+                file!().to_string(),
+                line!(),
+            )
+        })?
+        .clone();
+
+    let nodes_arc = std::sync::Arc::new(result.nodes);
+    let root_depth = first.depth;
 
     // Verify single root
-    let mut end_index = 1;
-    while end_index < nodes_arc.len() {
-         if nodes_arc[end_index].depth <= root_depth {
-              break;
-         }
-         end_index = end_index + 1;
-    }
-    
+    let end_index = nodes_arc
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, node)| node.depth <= root_depth)
+        .map(|(idx, _)| idx)
+        .unwrap_or(nodes_arc.len());
+
     if end_index != nodes_arc.len() {
-         return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "ASN1ParseResult unexpectedly allowed multiple root nodes".to_string(), file!().to_string(), line!()));
+        return Err(ASN1Error::new(
+            ErrorCode::InvalidASN1Object,
+            "ASN1ParseResult unexpectedly allowed multiple root nodes".to_string(),
+            file!().to_string(),
+            line!(),
+        ));
     }
-        
-    if first_is_constructed {
-             let collection = ASN1NodeCollection::new(nodes_arc, 1..end_index, root_depth);
-             Ok(ASN1Node {
-                 identifier: first_identifier,
-                 content: crate::asn1::Content::Constructed(collection),
-                 encoded_bytes: first_encoded_bytes,
-             })
+
+    if first.is_constructed {
+        let collection = ASN1NodeCollection::new(nodes_arc, 1..end_index, root_depth);
+        Ok(ASN1Node {
+            identifier: first.identifier,
+            content: crate::asn1::Content::Constructed(collection),
+            encoded_bytes: first.encoded_bytes,
+        })
     } else {
-             Ok(ASN1Node {
-                 identifier: first_identifier,
-                 content: crate::asn1::Content::Primitive(first_data_bytes.unwrap()),
-                 encoded_bytes: first_encoded_bytes,
-             })
+        Ok(ASN1Node {
+            identifier: first.identifier,
+            content: crate::asn1::Content::Primitive(first.data_bytes.unwrap()),
+            encoded_bytes: first.encoded_bytes,
+        })
     }
 }
 
@@ -208,8 +218,10 @@ fn encode_length(len: usize) -> Vec<u8> {
             bytes.push((l & 0xFF) as u8);
             l >>= 8;
         }
-        let mut result = Vec::new();
-        result.push(0x80 | bytes.len() as u8);
+        let len_len = bytes.len() as u8;
+        let indicator = 0x80u8 + len_len;
+        let mut result = Vec::with_capacity(1 + bytes.len());
+        result.push(indicator);
         for b in bytes.iter().rev() {
             result.push(*b);
         }
@@ -221,6 +233,7 @@ fn encode_length(len: usize) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::asn1_types::{ASN1Integer, ASN1Identifier, TagClass};
+    use num_traits::ToPrimitive;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct Dummy(u8);
@@ -269,6 +282,19 @@ mod tests {
         let node = parse(&data).unwrap();
         let res = sequence_of::<ASN1Integer>(ASN1Identifier::SET, node);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_der_sequence_of_success() {
+        // SEQUENCE { INTEGER 1, INTEGER 2 }
+        let data = vec![0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02];
+        let node = parse(&data).unwrap();
+        let values = sequence_of::<ASN1Integer>(ASN1Identifier::SEQUENCE, node).unwrap();
+        let numbers: Vec<i64> = values
+            .into_iter()
+            .map(|v| v.value.to_i64().unwrap())
+            .collect();
+        assert_eq!(numbers, vec![1, 2]);
     }
 
     #[test]
@@ -365,6 +391,13 @@ mod tests {
         assert_eq!(out[1], 0x82);
         assert_eq!(out[2], 0x01);
         assert_eq!(out[3], 0x00);
+    }
+
+    #[test]
+    fn test_encode_length_long_form_large_value() {
+        let encoded = encode_length(0x012345);
+        assert_eq!(encoded, vec![0x83, 0x01, 0x23, 0x45]);
+        assert_eq!(encoded[0] & 0x80, 0x80, "long-form indicator bit must be set");
     }
 
     #[test]

@@ -46,7 +46,16 @@ impl ASN1ObjectIdentifier {
              return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "Zero components in OID".to_string(), file!().to_string(), line!()));
         }
         
+        let before_first = data.len();
         let first_val = read_oid_subidentifier(&mut data)?;
+        if data.len() == before_first {
+            return Err(ASN1Error::new(
+                ErrorCode::InvalidASN1Object,
+                "OID decoder failed to consume first subidentifier".to_string(),
+                file!().to_string(),
+                line!(),
+            ));
+        }
         
         let first = first_val / 40;
         let second = first_val % 40;
@@ -110,7 +119,16 @@ impl ASN1ObjectIdentifier {
         components[1] = second;
 
         while !data.is_empty() {
-             components.push(read_oid_subidentifier(&mut data)?);
+            let before = data.len();
+            components.push(read_oid_subidentifier(&mut data)?);
+            if data.len() == before {
+                return Err(ASN1Error::new(
+                    ErrorCode::InvalidASN1Object,
+                    "OID decoder failed to consume subidentifier bytes".to_string(),
+                    file!().to_string(),
+                    line!(),
+                ));
+            }
         }
         
         Ok(components)
@@ -151,7 +169,16 @@ impl DERImplicitlyTaggable for ASN1ObjectIdentifier {
                 // Validate VLQ
                 let mut check = bytes.clone();
                 while !check.is_empty() {
-                     read_oid_subidentifier(&mut check)?;
+                    let before = check.len();
+                    read_oid_subidentifier(&mut check)?;
+                    if check.len() == before {
+                        return Err(ASN1Error::new(
+                            ErrorCode::InvalidASN1Object,
+                            "OID validation failed to consume subidentifier bytes".to_string(),
+                            file!().to_string(),
+                            line!(),
+                        ));
+                    }
                 }
                 
                 Ok(ASN1ObjectIdentifier { bytes })
@@ -180,21 +207,29 @@ fn write_oid_subidentifier(mut value: u64, buf: &mut Vec<u8>) {
         return;
     }
 
-    let mut stack = Vec::new();
-    loop {
+    let mut stack = Vec::with_capacity(10);
+    let mut finished = false;
+    for _ in 0..=10 {
         stack.push((value & 0x7F) as u8);
         value >>= 7;
-        if value == 0 {
+        let done = value == 0;
+        if done {
+            finished = true;
             break;
         }
     }
 
-    for i in (0..stack.len()).rev() {
-        let mut byte = stack[i];
-        if i != 0 {
-            byte |= 0x80;
+    assert!(
+        finished,
+        "OID subidentifier requires more than 10 bytes of VLQ encoding"
+    );
+
+    for (index, byte) in stack.iter().rev().enumerate() {
+        let mut out = *byte;
+        if index + 1 < stack.len() {
+            out |= 0x80;
         }
-        buf.push(byte);
+        buf.push(out);
     }
 }
 
@@ -222,15 +257,18 @@ fn read_oid_subidentifier(data: &mut Bytes) -> Result<u64, ASN1Error> {
         }
         first_byte = false;
 
-        if value > (u64::MAX >> 7) {
-            return Err(ASN1Error::new(
-                ErrorCode::InvalidASN1Object,
-                "OID subidentifier exceeds u64 capacity".to_string(),
-                file!().to_string(),
-                line!(),
-            ));
-        }
-        value = (value << 7) | u64::from(byte & 0x7F);
+        let chunk = u64::from(byte & 0x7F);
+        value = value
+            .checked_mul(128)
+            .and_then(|v| v.checked_add(chunk))
+            .ok_or_else(|| {
+                ASN1Error::new(
+                    ErrorCode::InvalidASN1Object,
+                    "OID subidentifier exceeds u64 capacity".to_string(),
+                    file!().to_string(),
+                    line!(),
+                )
+            })?;
 
         if (byte & 0x80) == 0 {
             break;
@@ -352,6 +390,17 @@ mod tests {
         assert!(bytes.is_empty());
         assert_eq!(buf.last().unwrap() & 0x80, 0);
         assert!(buf[..buf.len() - 1].iter().all(|b| b & 0x80 != 0));
+    }
+
+    #[test]
+    fn test_read_oid_subidentifier_accepts_max_pre_shift_value() {
+        let limit = u64::MAX / 128;
+        let mut buf = Vec::new();
+        write_oid_subidentifier(limit, &mut buf);
+        let mut bytes = Bytes::from(buf);
+        let parsed = read_oid_subidentifier(&mut bytes).unwrap();
+        assert_eq!(parsed, limit);
+        assert!(bytes.is_empty());
     }
 
     #[test]
