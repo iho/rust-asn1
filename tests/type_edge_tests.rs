@@ -1,5 +1,10 @@
-use rust_asn1::asn1_types::{ASN1Boolean, ASN1Integer, GeneralizedTime};
-use rust_asn1::der::{DERSerializable, Serializer};
+use rust_asn1::asn1_types::{
+    ASN1Boolean, ASN1Integer, GeneralizedTime, UTCTime, 
+    ASN1PrintableString, ASN1NumericString, ASN1IA5String, ASN1UTF8String
+};
+use rust_asn1::der::{DERParseable, DERSerializable, Serializer};
+use rust_asn1::ber::{self, BERParseable};
+use rust_asn1::asn1::ASN1Node;
 use chrono::{TimeZone, Utc};
 
 #[test]
@@ -60,4 +65,88 @@ fn test_time_methods() {
     let dt = Utc.with_ymd_and_hms(2023, 1, 1, 12, 0, 0).unwrap();
     let gt: GeneralizedTime = dt.into();
     assert_eq!(gt.0, dt);
+}
+
+#[test]
+fn test_time_parsing_errors() {
+    // GeneralizedTime
+    // Missing Z
+    let data = "20230101120000".as_bytes(); // No Z
+    let node = ASN1Node {
+        identifier: rust_asn1::asn1_types::ASN1Identifier::GENERALIZED_TIME,
+        content: rust_asn1::asn1::Content::Primitive(bytes::Bytes::copy_from_slice(data)),
+        encoded_bytes: bytes::Bytes::new(),
+    };
+    assert!(GeneralizedTime::from_der_node(node.clone()).is_err()); // Missing Z
+
+    // Invalid Format
+    let data = "2023-01-01 12:00:00Z".as_bytes(); 
+    let node = ASN1Node {
+        identifier: rust_asn1::asn1_types::ASN1Identifier::GENERALIZED_TIME,
+        content: rust_asn1::asn1::Content::Primitive(bytes::Bytes::copy_from_slice(data)),
+        encoded_bytes: bytes::Bytes::new(),
+    };
+    assert!(GeneralizedTime::from_der_node(node).is_err());
+
+    // UTCTime
+    // Missing Z
+    let data = "230101120000".as_bytes();
+    let node = ASN1Node {
+        identifier: rust_asn1::asn1_types::ASN1Identifier::UTC_TIME,
+        content: rust_asn1::asn1::Content::Primitive(bytes::Bytes::copy_from_slice(data)),
+        encoded_bytes: bytes::Bytes::new(),
+    };
+    assert!(UTCTime::from_der_node(node.clone()).is_err());
+    
+    // Invalid length
+    let data = "23".as_bytes();
+    let node = ASN1Node {
+        identifier: rust_asn1::asn1_types::ASN1Identifier::UTC_TIME,
+        content: rust_asn1::asn1::Content::Primitive(bytes::Bytes::copy_from_slice(data)),
+        encoded_bytes: bytes::Bytes::new(),
+    };
+    assert!(UTCTime::from_der_node(node).is_err());
+}
+
+#[test]
+fn test_string_validation() {
+    // PrintableString
+    // Valid
+    assert!(ASN1PrintableString::new("ABC 123.-".to_string()).is_ok());
+    // Invalid (@ is not printable)
+    assert!(ASN1PrintableString::new("user@example.com".to_string()).is_err());
+    
+    // NumericString
+    // Valid
+    assert!(ASN1NumericString::new("123 456".to_string()).is_ok());
+    // Invalid (A is not numeric)
+    assert!(ASN1NumericString::new("123 A".to_string()).is_err());
+    
+    // IA5String
+    // Valid (ASCII)
+    assert!(ASN1IA5String::new("Hello".to_string()).is_ok());
+    // Invalid (Non-ASCII)
+    assert!(ASN1IA5String::new("Héllo".to_string()).is_err()); // 'é' is not ASCII
+}
+
+#[test]
+fn test_ber_constructed_string() {
+    // Constructed OCTET STRING is already tested in ber_tests.rs
+    // Let's test constructed UTF8String if implemented or supported by generic logic?
+    // strings.rs macro implements BER constructed support.
+    
+    // Construct a BER node: UTF8String (Constructed) containing 2 UTF8Strings
+    // UTF8String tag: 0x0C (12). Constructed: 0x2C.
+    // Chunk 1: "He" (0x0C 0x02 'H' 'e')
+    // Chunk 2: "llo" (0x0C 0x03 'l' 'l' 'o')
+    
+    let data = vec![
+        0x2C, 0x09, // Tag 12|Constructed, Length 9
+        0x0C, 0x02, 0x48, 0x65, // He
+        0x0C, 0x03, 0x6C, 0x6C, 0x6F, // llo
+    ];
+    
+    let node = ber::parse(&data).expect("Failed parse BER");
+    let val = ASN1UTF8String::from_ber_node(node).expect("Failed parse constructed UTF8String");
+    assert_eq!(val.0, "Hello");
 }
