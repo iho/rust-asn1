@@ -4,7 +4,7 @@ use num_bigint::BigInt;
 use chrono::{Utc, TimeZone};
 use std::fs;
 use std::path::Path;
-use bytes::Bytes;
+// use bytes::Bytes;
 
 fn read_golden(name: &str) -> Vec<u8> {
     let path = Path::new("tests/golden").join(name);

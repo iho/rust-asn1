@@ -104,9 +104,36 @@ impl BERImplicitlyTaggable for ASN1BitString {
                  }
                  Ok(ASN1BitString { bytes: bytes.slice(1..), padding_bits })
              },
-             crate::asn1::Content::Constructed(_collection) => {
-                 // BER allows constructed BIT STRING
-                 Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "Constructed BIT STRING not implemented yet".to_string(), file!().to_string(), line!()))
+             crate::asn1::Content::Constructed(collection) => {
+                 let mut result_bits = Vec::new();
+                 let mut total_padding = 0;
+                 
+                 for child in collection {
+                     let part = ASN1BitString::from_ber_node(child)?;
+                     // If part has padding, it must be the last part? 
+                     // "The encoding of a bitstring value shall be either ... or primitive ... or constructed. 
+                     // If constructed, the simple bitstrings shall be primitive."
+                     // "The last bitstring may have padding bits. Previous bitstrings must be multiples of 8 bits."
+                     // So check if previous parts had padding? 
+                     // Actually, if we are concatenating, only the last one matters for padding.
+                     // But if an intermediate one has padding, then we are skipping bits?
+                     // Standard says: "Each component ... except possibly the last ... shall contain a multiple of 8 bits."
+                     // Meaning padding_bits must be 0 for all except last.
+                     
+                     // We assemble the bytes. 
+                     // If part has padding 0, we just append bytes.
+                     // If part has padding > 0, it must be the last one.
+                     
+                     if total_padding != 0 {
+                         // We already saw a padded part, but here is another part.
+                         return Err(ASN1Error::new(ErrorCode::InvalidASN1Object, "Only the last segment of a constructed BIT STRING may have non-zero padding".to_string(), file!().to_string(), line!()));
+                     }
+                     
+                     result_bits.extend_from_slice(&part.bytes);
+                     total_padding = part.padding_bits;
+                 }
+                 
+                 Ok(ASN1BitString { bytes: Bytes::from(result_bits), padding_bits: total_padding })
              }
         }
     }

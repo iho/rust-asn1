@@ -385,6 +385,12 @@ pub struct ASN1Node {
     pub encoded_bytes: Bytes,
 }
 
+impl ASN1Node {
+    pub fn is_constructed(&self) -> bool {
+        matches!(self.content, Content::Constructed(_))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Content {
     Constructed(ASN1NodeCollection),
@@ -399,49 +405,67 @@ pub struct LazySetOfSequence<T> {
      _marker: std::marker::PhantomData<T>,
 }
 
-// Helper for SetOf ordering
-impl ASN1NodeCollection {
-    pub(crate) fn is_ordered_according_to_set_of_semantics(&self) -> bool {
-        let mut iter = self.clone().into_iter();
-        let first = match iter.next() {
-            Some(n) => n,
-            None => return true,
-        };
 
-        let mut previous_element = first;
-        while let Some(next_element) = iter.next() {
-            if !asn1_set_element_less_than_or_equal(&previous_element.encoded_bytes, &next_element.encoded_bytes) {
-                return false;
-            }
-            previous_element = next_element;
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::der::{self, DERParseable};
+    use crate::asn1_types::ASN1Integer;
 
-        true
+    #[test]
+    fn test_parse_empty_data() {
+        let data = Bytes::from(vec![]);
+        // EncodingRules::Distinguished is DER
+        let res = ParseResult::parse(data, EncodingRules::Distinguished);
+        assert!(res.is_err());
     }
-}
 
-fn asn1_set_element_less_than(lhs: &[u8], rhs: &[u8]) -> bool {
-    for (l, r) in lhs.iter().zip(rhs.iter()) {
-        if l < r {
-            return true;
-        } else if r < l {
-            return false;
-        }
+    #[test]
+    fn test_parse_truncated_tag() {
+        let data = Bytes::from(vec![0x1F]);
+        let res = ParseResult::parse(data, EncodingRules::Distinguished);
+        assert!(res.is_err());
     }
-    // if equal prefix
-    if lhs.len() < rhs.len() {
-        // lhs is shorter, so it comes first, unless rhs trailing are all zero (not possible in DER usually, encoded bytes include tag/length)
-        // Swift code: if trailing.allSatisfy({ $0 == 0 }) return false
-        let trailing = &rhs[lhs.len()..];
-        if trailing.iter().all(|&b| b == 0) {
-            return false;
-        }
-        return true;
-    }
-    false
-}
 
-fn asn1_set_element_less_than_or_equal(lhs: &[u8], rhs: &[u8]) -> bool {
-    !asn1_set_element_less_than(rhs, lhs)
+    #[test]
+    fn test_parse_truncated_length() {
+        let data = Bytes::from(vec![0x02]);
+        let res = ParseResult::parse(data, EncodingRules::Distinguished);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_parse_truncated_value() {
+        let data = Bytes::from(vec![0x02, 0x01]);
+        let res = ParseResult::parse(data, EncodingRules::Distinguished);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_parse_extra_data() {
+        let data = Bytes::from(vec![0x02, 0x01, 0x00, 0xFF]);
+        // parse returns a list of nodes.
+        // If we use ParseResult::parse directly, it checks !current_data.is_empty().
+        let res = ParseResult::parse(data.clone(), EncodingRules::Distinguished);
+        // It should err because of trailing unparsed data
+        assert!(res.is_err());
+        
+        let res_der = der::parse(&data);
+        assert!(res_der.is_err()); 
+    }
+
+    #[test]
+    fn test_huge_length() {
+        let data = Bytes::from(vec![0x02, 0x84, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let res = ParseResult::parse(data, EncodingRules::Distinguished);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_recursion_limit() {
+        let data = vec![0x30, 0x02, 0x30, 0x00];
+        let res = der::parse(&data);
+        assert!(res.is_ok());
+    }
 }
 

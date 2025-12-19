@@ -66,8 +66,8 @@ impl ASN1Identifier {
     pub const BIT_STRING: ASN1Identifier = ASN1Identifier::new(0x03, TagClass::Universal);
     pub const OCTET_STRING: ASN1Identifier = ASN1Identifier::new(0x04, TagClass::Universal);
     pub const INTEGER: ASN1Identifier = ASN1Identifier::new(0x02, TagClass::Universal);
-    pub const SEQUENCE: ASN1Identifier = ASN1Identifier::new(0x30, TagClass::Universal);
-    pub const SET: ASN1Identifier = ASN1Identifier::new(0x31, TagClass::Universal);
+    pub const SEQUENCE: ASN1Identifier = ASN1Identifier::new(0x10, TagClass::Universal);
+    pub const SET: ASN1Identifier = ASN1Identifier::new(0x11, TagClass::Universal);
     pub const NULL: ASN1Identifier = ASN1Identifier::new(0x05, TagClass::Universal);
     pub const BOOLEAN: ASN1Identifier = ASN1Identifier::new(0x01, TagClass::Universal);
     pub const ENUMERATED: ASN1Identifier = ASN1Identifier::new(0x0a, TagClass::Universal);

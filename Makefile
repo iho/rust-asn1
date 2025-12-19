@@ -6,3 +6,15 @@ test_coverage:
 	cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 	cargo llvm-cov report --html --output-dir coverage
 	@echo "Coverage report generated in coverage/index.html"
+
+report:
+	cargo llvm-cov report
+
+
+# Mutations testing
+
+install_mutant:
+	cargo install --locked cargo-mutants
+
+mutant:
+	cargo mutants

@@ -216,3 +216,81 @@ fn encode_length(len: usize) -> Vec<u8> {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::asn1_types::{ASN1Integer, ASN1Identifier, TagClass};
+
+    #[test]
+    fn test_der_sequence_unconsumed() {
+        let data = vec![0x30, 0x03, 0x02, 0x01, 0x01];
+        let node = parse(&data).unwrap();
+        
+        let res: Result<(), _> = sequence(node, ASN1Identifier::SEQUENCE, |_iter| {
+            Ok(())
+        });
+        
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_der_sequence_mismatch_identifier() {
+        let data = vec![0x30, 0x00];
+        let node = parse(&data).unwrap();
+        
+        let res: Result<(), _> = sequence(node, ASN1Identifier::SET, |_iter| {
+            Ok(())
+        });
+        
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_der_sequence_of_mismatch() {
+        let data = vec![0x30, 0x00];
+        let node = parse(&data).unwrap();
+        let res = sequence_of::<ASN1Integer>(ASN1Identifier::SET, node);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_identifier_writing_edge_cases() {
+        let mut buf = Vec::new();
+        // Tag 31 (Context Specific) -> requires long form because 31 is the marker (0x1F)
+        let id = ASN1Identifier::new(31, TagClass::ContextSpecific); 
+        
+        buf.write_identifier(id, false);
+        // Header: Context(0x80) | 0x1F = 0x9F.
+        // Value: 31 (0x1F).
+        assert_eq!(buf, vec![0x9F, 0x1F]);
+        
+        // Constructed
+        buf.clear();
+        buf.write_identifier(id, true);
+        // Header: Context(0x80) | Constructed(0x20) | 0x1F = 0xBF.
+        assert_eq!(buf, vec![0xBF, 0x1F]);
+    }
+
+    #[test]
+    fn test_write_large_tag() {
+        // Tag 128 (Universal)
+        let mut buf = Vec::new();
+        let id = ASN1Identifier::new(128, TagClass::Universal);
+        buf.write_identifier(id, false);
+        // Header: Universal(0) | 0x1F = 0x1F.
+        // Value: 128 -> 0x81 0x00.
+        assert_eq!(buf, vec![0x1F, 0x81, 0x00]);
+    }
+
+    #[test]
+    fn test_der_serializer_append() {
+        let mut serializer = Serializer::new();
+        serializer.append_primitive_node(ASN1Identifier::INTEGER, |_buf| {
+            // Write nothing
+            Ok(())
+        }).unwrap();
+        // Tag INTEGER (02) | Length 00.
+        assert_eq!(serializer.serialized_bytes(), vec![0x02, 0x00]);
+    }
+}

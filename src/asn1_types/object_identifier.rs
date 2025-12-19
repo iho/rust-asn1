@@ -234,9 +234,28 @@ fn read_oid_subidentifier(data: &mut Bytes) -> Result<u64, ASN1Error> {
     Ok(value)
 }
 
-pub mod named_curves {
-    use super::ASN1ObjectIdentifier;
-    pub fn secp256r1() -> Result<ASN1ObjectIdentifier, crate::errors::ASN1Error> { ASN1ObjectIdentifier::new(&[1, 2, 840, 10_045, 3, 1, 7]) }
-    pub fn secp384r1() -> Result<ASN1ObjectIdentifier, crate::errors::ASN1Error> { ASN1ObjectIdentifier::new(&[1, 3, 132, 0, 34]) }
-    pub fn secp521r1() -> Result<ASN1ObjectIdentifier, crate::errors::ASN1Error> { ASN1ObjectIdentifier::new(&[1, 3, 132, 0, 35]) }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oid_new_errors() {
+        assert!(ASN1ObjectIdentifier::new(&[1]).is_err());
+        assert!(ASN1ObjectIdentifier::new(&[3, 0]).is_err());
+        assert!(ASN1ObjectIdentifier::new(&[0, 41]).is_err()); // > 39
+        assert!(ASN1ObjectIdentifier::new(&[1, 40]).is_err());
+        
+        assert!(ASN1ObjectIdentifier::new(&[0, 39]).is_ok());
+        assert!(ASN1ObjectIdentifier::new(&[1, 39]).is_ok());
+        assert!(ASN1ObjectIdentifier::new(&[2, 100]).is_ok());
+    }
+
+
+    #[test]
+    fn test_whitebox_oid_leading_zero_vlq() {
+        // Tag 06 Length 02 Data 80 01
+        let data = vec![0x06, 0x02, 0x80, 0x01];
+        let res = ASN1ObjectIdentifier::from_der_bytes(&data);
+        assert!(res.is_err());
+    }
 }
