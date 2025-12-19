@@ -16,5 +16,7 @@ report:
 install_mutant:
 	cargo install --locked cargo-mutants
 
+JOBS ?= $(shell nproc)
+
 mutant:
-	cargo mutants --timeout 20 --jobs 10
+	cargo mutants --timeout 20 --jobs $(JOBS)
