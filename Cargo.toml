@@ -1,0 +1,10 @@
+[package]
+name = "rust-asn1"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytes = "1.11.0"
+chrono = "0.4.42"
+num-bigint = "0.4.6"
+num-traits = "0.2.19"
