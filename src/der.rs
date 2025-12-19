@@ -222,6 +222,23 @@ mod tests {
     use super::*;
     use crate::asn1_types::{ASN1Integer, ASN1Identifier, TagClass};
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct Dummy(u8);
+
+    impl DERParseable for Dummy {
+        fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
+            match node.content {
+                crate::asn1::Content::Primitive(bytes) => Ok(Dummy(bytes[0])),
+                _ => Err(ASN1Error::new(
+                    ErrorCode::UnexpectedFieldType,
+                    "".to_string(),
+                    file!().to_string(),
+                    line!(),
+                )),
+            }
+        }
+    }
+
     #[test]
     fn test_der_sequence_unconsumed() {
         let data = vec![0x30, 0x03, 0x02, 0x01, 0x01];
@@ -270,6 +287,84 @@ mod tests {
         buf.write_identifier(id, true);
         // Header: Context(0x80) | Constructed(0x20) | 0x1F = 0xBF.
         assert_eq!(buf, vec![0xBF, 0x1F]);
+    }
+
+    #[test]
+    fn test_der_from_der_iterator_empty_error() {
+        let data = vec![0x30, 0x00];
+        let node = parse(&data).unwrap();
+        let res: Result<(), _> = sequence(node, ASN1Identifier::SEQUENCE, |iter| {
+            let _ = Dummy::from_der_iterator(iter)?;
+            Ok(())
+        });
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_der_sequence_non_constructed_error() {
+        let node = ASN1Node {
+            identifier: ASN1Identifier::SEQUENCE,
+            content: crate::asn1::Content::Primitive(Bytes::from_static(&[])),
+            encoded_bytes: Bytes::new(),
+        };
+        let res: Result<(), _> = sequence(node, ASN1Identifier::SEQUENCE, |_iter| Ok(()));
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_der_sequence_of_non_constructed_error() {
+        let node = ASN1Node {
+            identifier: ASN1Identifier::SEQUENCE,
+            content: crate::asn1::Content::Primitive(Bytes::from_static(&[])),
+            encoded_bytes: Bytes::new(),
+        };
+        let res = sequence_of::<ASN1Integer>(ASN1Identifier::SEQUENCE, node);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_identifier_writing_short_constructed() {
+        let mut buf = Vec::new();
+        buf.write_identifier(ASN1Identifier::BOOLEAN, true);
+        assert_eq!(buf, vec![0x21]);
+    }
+
+    #[test]
+    fn test_write_asn1_discipline_uint_zero() {
+        let mut buf = Vec::new();
+        write_asn1_discipline_uint(&mut buf, 0);
+        assert_eq!(buf, vec![0x00]);
+    }
+
+    #[test]
+    fn test_encode_length_long_form_128() {
+        let mut serializer = Serializer::new();
+        serializer
+            .append_primitive_node(ASN1Identifier::OCTET_STRING, |buf| {
+                buf.extend_from_slice(&vec![0u8; 128]);
+                Ok(())
+            })
+            .unwrap();
+        let out = serializer.serialized_bytes();
+        assert_eq!(out[0], 0x04);
+        assert_eq!(out[1], 0x81);
+        assert_eq!(out[2], 0x80);
+    }
+
+    #[test]
+    fn test_encode_length_long_form_256() {
+        let mut serializer = Serializer::new();
+        serializer
+            .append_primitive_node(ASN1Identifier::OCTET_STRING, |buf| {
+                buf.extend_from_slice(&vec![0u8; 256]);
+                Ok(())
+            })
+            .unwrap();
+        let out = serializer.serialized_bytes();
+        assert_eq!(out[0], 0x04);
+        assert_eq!(out[1], 0x82);
+        assert_eq!(out[2], 0x01);
+        assert_eq!(out[3], 0x00);
     }
 
     #[test]
