@@ -1,12 +1,13 @@
-use rust_asn1::asn1_types::{
-    ASN1Boolean, ASN1Integer, GeneralizedTime, UTCTime, 
-    ASN1PrintableString, ASN1NumericString, ASN1IA5String, ASN1UTF8String, ASN1Null, ASN1Identifier, ASN1OctetString, ASN1BitString
-};
-use rust_asn1::der::{self, DERParseable, DERSerializable, Serializer, DERImplicitlyTaggable};
-use rust_asn1::ber::{self, BERParseable, BERImplicitlyTaggable};
-use rust_asn1::asn1::ASN1Node;
 use bytes::Bytes;
 use chrono::{TimeZone, Utc};
+use rust_asn1::asn1::ASN1Node;
+use rust_asn1::asn1_types::{
+    ASN1BitString, ASN1Boolean, ASN1IA5String, ASN1Identifier, ASN1Integer, ASN1Null,
+    ASN1NumericString, ASN1OctetString, ASN1PrintableString, ASN1UTF8String, GeneralizedTime,
+    UTCTime,
+};
+use rust_asn1::ber::{self, BERImplicitlyTaggable, BERParseable};
+use rust_asn1::der::{self, DERImplicitlyTaggable, DERParseable, DERSerializable, Serializer};
 
 #[test]
 fn test_boolean_edge() {
@@ -20,7 +21,10 @@ fn test_boolean_edge() {
 #[test]
 fn test_boolean_der_identifier_mismatch() {
     let node = der::parse(&[0x01, 0x01, 0x00]).unwrap();
-    let res = <ASN1Boolean as DERImplicitlyTaggable>::from_der_node_with_identifier(node, ASN1Identifier::INTEGER);
+    let res = <ASN1Boolean as DERImplicitlyTaggable>::from_der_node_with_identifier(
+        node,
+        ASN1Identifier::INTEGER,
+    );
     assert!(res.is_err());
 }
 
@@ -48,7 +52,10 @@ fn test_boolean_der_constructed_rejected() {
 #[test]
 fn test_boolean_ber_identifier_mismatch() {
     let node = ber::parse(&[0x01, 0x01, 0x00]).unwrap();
-    let res = <ASN1Boolean as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::INTEGER);
+    let res = <ASN1Boolean as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::INTEGER,
+    );
     assert!(res.is_err());
 }
 
@@ -78,7 +85,10 @@ fn test_integer_zero() {
 #[test]
 fn test_integer_der_identifier_mismatch() {
     let node = der::parse(&[0x02, 0x01, 0x00]).unwrap();
-    let res = <ASN1Integer as DERImplicitlyTaggable>::from_der_node_with_identifier(node, ASN1Identifier::BOOLEAN);
+    let res = <ASN1Integer as DERImplicitlyTaggable>::from_der_node_with_identifier(
+        node,
+        ASN1Identifier::BOOLEAN,
+    );
     assert!(res.is_err());
 }
 
@@ -130,7 +140,10 @@ fn test_integer_neg_one() {
 #[test]
 fn test_integer_ber_identifier_mismatch() {
     let node = ber::parse(&[0x02, 0x01, 0x00]).unwrap();
-    let res = <ASN1Integer as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::BOOLEAN);
+    let res = <ASN1Integer as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::BOOLEAN,
+    );
     assert!(res.is_err());
 }
 
@@ -160,7 +173,10 @@ fn test_octet_string_from_conversions() {
 #[test]
 fn test_octet_string_der_identifier_mismatch() {
     let node = der::parse(&[0x04, 0x00]).unwrap();
-    let res = <ASN1OctetString as DERImplicitlyTaggable>::from_der_node_with_identifier(node, ASN1Identifier::INTEGER);
+    let res = <ASN1OctetString as DERImplicitlyTaggable>::from_der_node_with_identifier(
+        node,
+        ASN1Identifier::INTEGER,
+    );
     assert!(res.is_err());
 }
 
@@ -174,7 +190,10 @@ fn test_octet_string_der_constructed_rejected() {
 #[test]
 fn test_octet_string_ber_identifier_mismatch() {
     let node = ber::parse(&[0x04, 0x00]).unwrap();
-    let res = <ASN1OctetString as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::INTEGER);
+    let res = <ASN1OctetString as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::INTEGER,
+    );
     assert!(res.is_err());
 }
 
@@ -200,7 +219,10 @@ fn test_bit_string_new_validation_errors() {
 #[test]
 fn test_bit_string_der_identifier_mismatch() {
     let node = der::parse(&[0x03, 0x02, 0x00, 0x00]).unwrap();
-    let res = <ASN1BitString as DERImplicitlyTaggable>::from_der_node_with_identifier(node, ASN1Identifier::INTEGER);
+    let res = <ASN1BitString as DERImplicitlyTaggable>::from_der_node_with_identifier(
+        node,
+        ASN1Identifier::INTEGER,
+    );
     assert!(res.is_err());
 }
 
@@ -253,7 +275,10 @@ fn test_bit_string_der_constructed_rejected() {
 #[test]
 fn test_bit_string_ber_identifier_mismatch() {
     let node = ber::parse(&[0x03, 0x02, 0x00, 0x00]).unwrap();
-    let res = <ASN1BitString as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::INTEGER);
+    let res = <ASN1BitString as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::INTEGER,
+    );
     assert!(res.is_err());
 }
 
@@ -273,11 +298,7 @@ fn test_bit_string_ber_invalid_padding_bits_rejected() {
 
 #[test]
 fn test_bit_string_ber_constructed_segment_padding_rule() {
-    let data = [
-        0x23, 0x08,
-        0x03, 0x02, 0x01, 0x00,
-        0x03, 0x02, 0x00, 0xFF,
-    ];
+    let data = [0x23, 0x08, 0x03, 0x02, 0x01, 0x00, 0x03, 0x02, 0x00, 0xFF];
     let node = ber::parse(&data).unwrap();
     let res = ASN1BitString::from_ber_node(node);
     assert!(res.is_err());
@@ -291,9 +312,9 @@ fn test_oid_invalid_string() {
     // Is there a way to construct from string?
     // `ASN1ObjectIdentifier` has `oid_components()` method which returns Vec<u64>.
     // To test invalid OID bytes, we can try `from_der_bytes` with bad data.
-    
+
     // Invalid sub-identifier encoding (e.g., > u64::MAX or improper VLQ)
-    // 80 80 80 ... 
+    // 80 80 80 ...
 }
 
 #[test]
@@ -301,7 +322,7 @@ fn test_oid_construct() {
     // If there is a constructor
     // ASN1ObjectIdentifier::new(vec![1, 2, 840])
     // Test serialization of it.
-    
+
     // This is covered if I use it.
 }
 
@@ -310,7 +331,7 @@ fn test_time_methods() {
     // GeneralizedTime with fractional seconds? (Not supported yet, but checking error?)
     // GeneralizedTime("20230101120000.123Z") -> Error
     // We only test what we have implemented.
-    
+
     let dt = Utc.with_ymd_and_hms(2023, 1, 1, 12, 0, 0).unwrap();
     let gt: GeneralizedTime = dt.into();
     assert_eq!(gt.0, dt);
@@ -329,7 +350,7 @@ fn test_time_parsing_errors() {
     assert!(GeneralizedTime::from_der_node(node.clone()).is_err()); // Missing Z
 
     // Invalid Format
-    let data = "2023-01-01 12:00:00Z".as_bytes(); 
+    let data = "2023-01-01 12:00:00Z".as_bytes();
     let node = ASN1Node {
         identifier: rust_asn1::asn1_types::ASN1Identifier::GENERALIZED_TIME,
         content: rust_asn1::asn1::Content::Primitive(bytes::Bytes::copy_from_slice(data)),
@@ -346,7 +367,7 @@ fn test_time_parsing_errors() {
         encoded_bytes: bytes::Bytes::new(),
     };
     assert!(UTCTime::from_der_node(node.clone()).is_err());
-    
+
     // Invalid length
     let data = "23".as_bytes();
     let node = ASN1Node {
@@ -361,7 +382,10 @@ fn test_time_parsing_errors() {
 fn test_time_identifier_mismatch_and_constructed_rejected() {
     let gt_bytes = b"20230101120000Z";
     let node = der::parse(&[&[0x18, 0x0F][..], gt_bytes].concat()).unwrap();
-    let res = <GeneralizedTime as DERImplicitlyTaggable>::from_der_node_with_identifier(node, ASN1Identifier::UTC_TIME);
+    let res = <GeneralizedTime as DERImplicitlyTaggable>::from_der_node_with_identifier(
+        node,
+        ASN1Identifier::UTC_TIME,
+    );
     assert!(res.is_err());
 
     let node = der::parse(&[0x38, 0x00]).unwrap();
@@ -370,7 +394,10 @@ fn test_time_identifier_mismatch_and_constructed_rejected() {
 
     let utc_bytes = b"230101120000Z";
     let node = der::parse(&[&[0x17, 0x0D][..], utc_bytes].concat()).unwrap();
-    let res = <UTCTime as DERImplicitlyTaggable>::from_der_node_with_identifier(node, ASN1Identifier::GENERALIZED_TIME);
+    let res = <UTCTime as DERImplicitlyTaggable>::from_der_node_with_identifier(
+        node,
+        ASN1Identifier::GENERALIZED_TIME,
+    );
     assert!(res.is_err());
 
     let node = der::parse(&[0x37, 0x00]).unwrap();
@@ -393,7 +420,11 @@ fn test_time_ber_wrappers() {
     assert_eq!(v.0.format("%Y%m%d%H%M%SZ").to_string(), "20230101120000Z");
 
     let node = ber::parse(&[&[0x18, 0x0F][..], gt_bytes].concat()).unwrap();
-    let v = <GeneralizedTime as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::GENERALIZED_TIME).unwrap();
+    let v = <GeneralizedTime as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::GENERALIZED_TIME,
+    )
+    .unwrap();
     assert_eq!(v.0.format("%Y%m%d%H%M%SZ").to_string(), "20230101120000Z");
 
     let utc_bytes = b"230101120000Z";
@@ -402,7 +433,11 @@ fn test_time_ber_wrappers() {
     assert_eq!(v.0.format("%y%m%d%H%M%SZ").to_string(), "230101120000Z");
 
     let node = ber::parse(&[&[0x17, 0x0D][..], utc_bytes].concat()).unwrap();
-    let v = <UTCTime as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::UTC_TIME).unwrap();
+    let v = <UTCTime as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::UTC_TIME,
+    )
+    .unwrap();
     assert_eq!(v.0.format("%y%m%d%H%M%SZ").to_string(), "230101120000Z");
 }
 
@@ -419,7 +454,10 @@ fn test_time_der_invalid_utf8() {
 fn test_time_ber_identifier_mismatch_wrappers() {
     let utc_bytes = b"230101120000Z";
     let node = ber::parse(&[&[0x17, 0x0D][..], utc_bytes].concat()).unwrap();
-    let res = <UTCTime as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::GENERALIZED_TIME);
+    let res = <UTCTime as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::GENERALIZED_TIME,
+    );
     assert!(res.is_err());
 }
 
@@ -430,13 +468,13 @@ fn test_string_validation() {
     assert!(ASN1PrintableString::new("ABC 123.-".to_string()).is_ok());
     // Invalid (@ is not printable)
     assert!(ASN1PrintableString::new("user@example.com".to_string()).is_err());
-    
+
     // NumericString
     // Valid
     assert!(ASN1NumericString::new("123 456".to_string()).is_ok());
     // Invalid (A is not numeric)
     assert!(ASN1NumericString::new("123 A".to_string()).is_err());
-    
+
     // IA5String
     // Valid (ASCII)
     assert!(ASN1IA5String::new("Hello".to_string()).is_ok());
@@ -447,7 +485,10 @@ fn test_string_validation() {
 #[test]
 fn test_strings_der_identifier_mismatch() {
     let node = der::parse(&[0x13, 0x01, 0x41]).unwrap();
-    let res = <ASN1PrintableString as DERImplicitlyTaggable>::from_der_node_with_identifier(node, ASN1Identifier::UTF8_STRING);
+    let res = <ASN1PrintableString as DERImplicitlyTaggable>::from_der_node_with_identifier(
+        node,
+        ASN1Identifier::UTF8_STRING,
+    );
     assert!(res.is_err());
 }
 
@@ -468,7 +509,10 @@ fn test_strings_der_constructed_rejected() {
 #[test]
 fn test_strings_ber_identifier_mismatch() {
     let node = ber::parse(&[0x0C, 0x01, 0x41]).unwrap();
-    let res = <ASN1UTF8String as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::INTEGER);
+    let res = <ASN1UTF8String as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::INTEGER,
+    );
     assert!(res.is_err());
 }
 
@@ -516,31 +560,19 @@ fn test_strings_der_constructed_rejected_for_all_types() {
 #[test]
 fn test_strings_ber_constructed_concat_success_for_multiple_types() {
     // PrintableString constructed: "AB" + "CD"
-    let data = [
-        0x33, 0x08,
-        0x13, 0x02, 0x41, 0x42,
-        0x13, 0x02, 0x43, 0x44,
-    ];
+    let data = [0x33, 0x08, 0x13, 0x02, 0x41, 0x42, 0x13, 0x02, 0x43, 0x44];
     let node = ber::parse(&data).unwrap();
     let v = ASN1PrintableString::from_ber_node(node).unwrap();
     assert_eq!(v.0, "ABCD");
 
     // NumericString constructed: "1" + "2"
-    let data = [
-        0x32, 0x06,
-        0x12, 0x01, 0x31,
-        0x12, 0x01, 0x32,
-    ];
+    let data = [0x32, 0x06, 0x12, 0x01, 0x31, 0x12, 0x01, 0x32];
     let node = ber::parse(&data).unwrap();
     let v = ASN1NumericString::from_ber_node(node).unwrap();
     assert_eq!(v.0, "12");
 
     // IA5String constructed: "Hi" + "!"
-    let data = [
-        0x36, 0x07,
-        0x16, 0x02, 0x48, 0x69,
-        0x16, 0x01, 0x21,
-    ];
+    let data = [0x36, 0x07, 0x16, 0x02, 0x48, 0x69, 0x16, 0x01, 0x21];
     let node = ber::parse(&data).unwrap();
     let v = ASN1IA5String::from_ber_node(node).unwrap();
     assert_eq!(v.0, "Hi!");
@@ -549,10 +581,7 @@ fn test_strings_ber_constructed_concat_success_for_multiple_types() {
 #[test]
 fn test_strings_ber_constructed_child_type_error() {
     // Constructed PrintableString containing IA5String child should error
-    let data = [
-        0x33, 0x04,
-        0x16, 0x02, 0x41, 0x42,
-    ];
+    let data = [0x33, 0x04, 0x16, 0x02, 0x41, 0x42];
     let node = ber::parse(&data).unwrap();
     let res = ASN1PrintableString::from_ber_node(node);
     assert!(res.is_err());
@@ -570,18 +599,18 @@ fn test_ber_constructed_string() {
     // Constructed OCTET STRING is already tested in ber_tests.rs
     // Let's test constructed UTF8String if implemented or supported by generic logic?
     // strings.rs macro implements BER constructed support.
-    
+
     // Construct a BER node: UTF8String (Constructed) containing 2 UTF8Strings
     // UTF8String tag: 0x0C (12). Constructed: 0x2C.
     // Chunk 1: "He" (0x0C 0x02 'H' 'e')
     // Chunk 2: "llo" (0x0C 0x03 'l' 'l' 'o')
-    
+
     let data = vec![
         0x2C, 0x09, // Tag 12|Constructed, Length 9
         0x0C, 0x02, 0x48, 0x65, // He
         0x0C, 0x03, 0x6C, 0x6C, 0x6F, // llo
     ];
-    
+
     let node = ber::parse(&data).expect("Failed parse BER");
     let val = ASN1UTF8String::from_ber_node(node).expect("Failed parse constructed UTF8String");
     assert_eq!(val.0, "Hello");
@@ -590,7 +619,10 @@ fn test_ber_constructed_string() {
 #[test]
 fn test_null_der_identifier_mismatch() {
     let node = ber::parse(&[0x05, 0x00]).unwrap();
-    let res = <ASN1Null as DERImplicitlyTaggable>::from_der_node_with_identifier(node, ASN1Identifier::INTEGER);
+    let res = <ASN1Null as DERImplicitlyTaggable>::from_der_node_with_identifier(
+        node,
+        ASN1Identifier::INTEGER,
+    );
     assert!(res.is_err());
 }
 
@@ -615,10 +647,125 @@ fn test_null_ber_wrappers() {
     assert_eq!(v, ASN1Null);
 
     let node = ber::parse(&[0x05, 0x00]).unwrap();
-    let v = <ASN1Null as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::NULL).unwrap();
+    let v = <ASN1Null as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::NULL,
+    )
+    .unwrap();
     assert_eq!(v, ASN1Null);
 
     let node = ber::parse(&[0x05, 0x00]).unwrap();
-    let res = <ASN1Null as BERImplicitlyTaggable>::from_ber_node_with_identifier(node, ASN1Identifier::INTEGER);
+    let res = <ASN1Null as BERImplicitlyTaggable>::from_ber_node_with_identifier(
+        node,
+        ASN1Identifier::INTEGER,
+    );
     assert!(res.is_err());
+}
+
+// ==============================================================================
+// Mutation Testing: Kill missed mutants
+// ==============================================================================
+
+/// Kill mutant: ASN1Integer::to_i64 -> Ok(0), Ok(1), Ok(-1)
+/// We test with values that are NOT 0, 1, or -1 to ensure actual conversion.
+#[test]
+fn test_integer_to_i64_actual_value() {
+    let int = ASN1Integer::from(42i64);
+    assert_eq!(int.to_i64().unwrap(), 42);
+
+    let int = ASN1Integer::from(-100i64);
+    assert_eq!(int.to_i64().unwrap(), -100);
+
+    let int = ASN1Integer::from(12345i64);
+    assert_eq!(int.to_i64().unwrap(), 12345);
+}
+
+/// Kill mutant: ASN1Integer::to_u64 -> Ok(0), Ok(1)
+/// We test with values that are NOT 0 or 1 to ensure actual conversion.
+#[test]
+fn test_integer_to_u64_actual_value() {
+    let int = ASN1Integer::from(42i64);
+    assert_eq!(int.to_u64().unwrap(), 42);
+
+    let int = ASN1Integer::from(999i64);
+    assert_eq!(int.to_u64().unwrap(), 999);
+
+    let int = ASN1Integer::from(12345i64);
+    assert_eq!(int.to_u64().unwrap(), 12345);
+}
+
+/// Kill mutant: From<ASN1Integer> for BigInt -> Default::default()
+/// Default for BigInt is 0, so test with non-zero values.
+#[test]
+fn test_asn1integer_into_bigint_actual_value() {
+    use num_bigint::BigInt;
+
+    let int = ASN1Integer::from(42i64);
+    let bigint: BigInt = int.into();
+    assert_eq!(bigint, BigInt::from(42));
+
+    let int = ASN1Integer::from(-999i64);
+    let bigint: BigInt = int.into();
+    assert_eq!(bigint, BigInt::from(-999));
+}
+
+/// Kill mutant: Option<T>::from_der_node -> Ok(Default::default())
+/// Default for Option is None, so we verify that Some(actual_value) is returned.
+#[test]
+fn test_option_from_der_node_returns_some_with_value() {
+    // Parse an INTEGER node as Option<i64>
+    let bytes = vec![0x02, 0x01, 0x2A]; // INTEGER 42
+    let node = der::parse(&bytes).unwrap();
+    let opt: Option<i64> = Option::<i64>::from_der_node(node).unwrap();
+    assert_eq!(opt, Some(42));
+
+    // Parse a BOOLEAN true as Option<bool>
+    let bytes = vec![0x01, 0x01, 0xFF]; // BOOLEAN true
+    let node = der::parse(&bytes).unwrap();
+    let opt: Option<bool> = Option::<bool>::from_der_node(node).unwrap();
+    assert_eq!(opt, Some(true));
+}
+
+/// Kill mutant: Option<T>::serialize -> Ok(()) without actually serializing
+/// Verify that Some(value) actually writes bytes.
+#[test]
+fn test_option_serialize_writes_content() {
+    let some_value: Option<i64> = Some(42);
+    let mut serializer = Serializer::new();
+    some_value.serialize(&mut serializer).unwrap();
+    // INTEGER 42 = 02 01 2A
+    assert_eq!(serializer.serialized_bytes().as_ref(), &[0x02, 0x01, 0x2A]);
+
+    // None should write nothing
+    let none_value: Option<i64> = None;
+    let mut serializer = Serializer::new();
+    none_value.serialize(&mut serializer).unwrap();
+    assert_eq!(serializer.serialized_bytes().len(), 0);
+}
+
+/// Additional test: Verify Option<T>::from_der_iterator correctly extracts value
+#[test]
+fn test_option_from_der_iterator_extracts_value() {
+    // SEQUENCE { INTEGER 42, BOOLEAN true }
+    let bytes = vec![0x30, 0x06, 0x02, 0x01, 0x2A, 0x01, 0x01, 0xFF];
+    let node = der::parse(&bytes).unwrap();
+    let (int_val, bool_val) = der::sequence(node, ASN1Identifier::SEQUENCE, |iter| {
+        let i: i64 = i64::from_der_iterator(iter)?;
+        let b: Option<bool> = Option::<bool>::from_der_iterator(iter)?;
+        Ok((i, b))
+    })
+    .unwrap();
+
+    assert_eq!(int_val, 42);
+    assert_eq!(bool_val, Some(true));
+}
+
+/// Additional test: Verify Option serialization with different types
+#[test]
+fn test_option_serialize_with_boolean() {
+    let some_true: Option<bool> = Some(true);
+    let mut serializer = Serializer::new();
+    some_true.serialize(&mut serializer).unwrap();
+    // BOOLEAN true = 01 01 FF
+    assert_eq!(serializer.serialized_bytes().as_ref(), &[0x01, 0x01, 0xFF]);
 }

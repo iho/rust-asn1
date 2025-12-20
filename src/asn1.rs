@@ -1,8 +1,8 @@
 use crate::asn1_types::{ASN1Identifier, TagClass};
 use crate::errors::{ASN1Error, ErrorCode};
 use bytes::Bytes;
-use std::sync::Arc;
 use std::ops::Range;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncodingRules {
@@ -58,11 +58,11 @@ impl ParseResult {
     pub fn parse(data: Bytes, rules: EncodingRules) -> Result<ParseResult, ASN1Error> {
         let mut nodes = Vec::with_capacity(16);
         let mut current_data = data;
-        
+
         Self::_parse_node(&mut current_data, rules, 1, &mut nodes)?;
-        
+
         if !current_data.is_empty() {
-             return Err(ASN1Error::new(
+            return Err(ASN1Error::new(
                 ErrorCode::InvalidASN1Object,
                 "Trailing unparsed data is present".to_string(),
                 file!().to_string(),
@@ -89,7 +89,7 @@ impl ParseResult {
         }
 
         if data.is_empty() {
-             return Err(ASN1Error::new(
+            return Err(ASN1Error::new(
                 ErrorCode::TruncatedASN1Field,
                 "".to_string(),
                 file!().to_string(),
@@ -110,8 +110,8 @@ impl ParseResult {
             // Assuming short tag for simplicity sake or I need to implement read_uint...
             // Implementing logic inline for now:
             let (tag_number, _bytes_read) = read_asn1_discipline_uint(data)?;
-             if tag_number < 0x1f {
-                 return Err(ASN1Error::new(
+            if tag_number < 0x1f {
+                return Err(ASN1Error::new(
                     ErrorCode::InvalidASN1Object,
                     format!("ASN.1 tag incorrectly encoded in long form: {}", tag_number),
                     file!().to_string(),
@@ -124,46 +124,46 @@ impl ParseResult {
         }
 
         let wide_length = _read_asn1_length(data, !rules.non_minimal_encoded_lengths_allowed())?;
-        
+
         match wide_length {
             ASN1Length::Definite(length) => {
-                 let length_usize = length as usize;
-                 if data.len() < length_usize {
-                     return Err(ASN1Error::new(
+                let length_usize = length as usize;
+                if data.len() < length_usize {
+                    return Err(ASN1Error::new(
                         ErrorCode::TruncatedASN1Field,
                         "".to_string(),
                         file!().to_string(),
                         line!(),
                     ));
-                 }
-                 
-                 let sub_data = data.split_to(length_usize);
-                 // encoded_bytes is original_data[0 .. (header + length)]
-                 let total_len = original_data.len() - data.len(); 
-                 let encoded_bytes = original_data.slice(0..total_len);
+                }
 
-                 if constructed {
-                     nodes.push(ParserNode {
-                         identifier,
-                         depth,
-                         is_constructed: true,
-                         encoded_bytes,
-                         data_bytes: None,
-                     });
-                     
-                     let mut check_sub = sub_data;
-                     while !check_sub.is_empty() {
-                         Self::_parse_node(&mut check_sub, rules, depth + 1, nodes)?;
-                     }
-                 } else {
-                     nodes.push(ParserNode {
-                         identifier,
-                         depth,
-                         is_constructed: false,
-                         encoded_bytes,
-                         data_bytes: Some(sub_data),
-                     });
-                 }
+                let sub_data = data.split_to(length_usize);
+                // encoded_bytes is original_data[0 .. (header + length)]
+                let total_len = original_data.len() - data.len();
+                let encoded_bytes = original_data.slice(0..total_len);
+
+                if constructed {
+                    nodes.push(ParserNode {
+                        identifier,
+                        depth,
+                        is_constructed: true,
+                        encoded_bytes,
+                        data_bytes: None,
+                    });
+
+                    let mut check_sub = sub_data;
+                    while !check_sub.is_empty() {
+                        Self::_parse_node(&mut check_sub, rules, depth + 1, nodes)?;
+                    }
+                } else {
+                    nodes.push(ParserNode {
+                        identifier,
+                        depth,
+                        is_constructed: false,
+                        encoded_bytes,
+                        data_bytes: Some(sub_data),
+                    });
+                }
             }
             ASN1Length::Indefinite => {
                 if !rules.indefinite_length_allowed() {
@@ -175,7 +175,7 @@ impl ParseResult {
                     ));
                 }
                 if !constructed {
-                     return Err(ASN1Error::new(
+                    return Err(ASN1Error::new(
                         ErrorCode::UnsupportedFieldLength,
                         "Indefinite-length field must have constructed identifier".to_string(),
                         file!().to_string(),
@@ -220,7 +220,6 @@ impl ParseResult {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ASN1Length {
     Indefinite,
@@ -229,14 +228,19 @@ enum ASN1Length {
 
 fn _read_asn1_length(data: &mut Bytes, minimal_encoding: bool) -> Result<ASN1Length, ASN1Error> {
     if data.is_empty() {
-        return Err(ASN1Error::new(ErrorCode::TruncatedASN1Field, "".to_string(), file!().to_string(), line!()));
+        return Err(ASN1Error::new(
+            ErrorCode::TruncatedASN1Field,
+            "".to_string(),
+            file!().to_string(),
+            line!(),
+        ));
     }
     let first_byte = data.split_to(1)[0];
-    
+
     if first_byte == 0x80 {
         return Ok(ASN1Length::Indefinite);
     }
-    
+
     if (first_byte & 0x80) == 0x80 {
         // Long form
         let field_length = (first_byte & 0x7F) as usize;
@@ -294,7 +298,12 @@ fn read_asn1_discipline_uint(data: &mut Bytes) -> Result<(u64, usize), ASN1Error
     let mut read = 0;
     loop {
         if data.is_empty() {
-             return Err(ASN1Error::new(ErrorCode::TruncatedASN1Field, "".to_string(), file!().to_string(), line!()));
+            return Err(ASN1Error::new(
+                ErrorCode::TruncatedASN1Field,
+                "".to_string(),
+                file!().to_string(),
+                line!(),
+            ));
         }
         let byte = data.split_to(1)[0];
         read += 1;
@@ -317,7 +326,6 @@ fn read_asn1_discipline_uint(data: &mut Bytes) -> Result<(u64, usize), ASN1Error
     Ok((value, read))
 }
 
-
 #[derive(Debug, Clone)]
 pub struct ASN1NodeCollection {
     // We use Arc to share the vector of all nodes parsed in the result
@@ -329,7 +337,11 @@ pub struct ASN1NodeCollection {
 
 impl ASN1NodeCollection {
     pub(crate) fn new(nodes: Arc<Vec<ParserNode>>, range: Range<usize>, depth: usize) -> Self {
-        ASN1NodeCollection { nodes, range, depth }
+        ASN1NodeCollection {
+            nodes,
+            range,
+            depth,
+        }
     }
 }
 
@@ -345,7 +357,6 @@ impl IntoIterator for ASN1NodeCollection {
         }
     }
 }
-
 
 pub struct ASN1NodeCollectionIterator {
     nodes: Arc<Vec<ParserNode>>,
@@ -365,24 +376,20 @@ impl ASN1NodeCollectionIterator {
 
     fn subtree_end_index(&self, index: usize) -> usize {
         let node_depth = self.nodes[index].depth;
-        let mut search_index = index + 1;
-        while search_index < self.range.end {
+        // Use range iteration to prevent infinite loops from mutation testing
+        for search_index in (index + 1)..self.range.end {
             if self.nodes[search_index].depth <= node_depth {
-                break;
+                return search_index;
             }
-            search_index += 1;
         }
-        search_index
+        self.range.end
     }
 
     fn clone_node(&self, index: usize, end_index: usize) -> ASN1Node {
         let node = &self.nodes[index];
         if node.is_constructed {
-            let collection = ASN1NodeCollection::new(
-                self.nodes.clone(),
-                (index + 1)..end_index,
-                node.depth,
-            );
+            let collection =
+                ASN1NodeCollection::new(self.nodes.clone(), (index + 1)..end_index, node.depth);
             ASN1Node {
                 identifier: node.identifier,
                 content: Content::Constructed(collection),
@@ -412,7 +419,6 @@ impl Iterator for ASN1NodeCollectionIterator {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct ASN1Node {
     pub identifier: ASN1Identifier,
@@ -432,12 +438,10 @@ pub enum Content {
     Primitive(Bytes),
 }
 
-
-
 #[cfg(test)]
-    mod tests {
+mod tests {
     use super::*;
-    use bytes::{BytesMut};
+    use bytes::BytesMut;
     use std::sync::Arc;
 
     #[test]
@@ -521,7 +525,6 @@ pub enum Content {
         let res = ParseResult::parse(data.clone(), EncodingRules::Distinguished);
         // It should err because of trailing unparsed data
         assert!(res.is_err());
-        
     }
 
     #[test]
@@ -589,9 +592,9 @@ pub enum Content {
         // Each sequence: 0x30 0xXX ...
         // To be valid, they must have length. Indefinite length not allowed in DER, but allowed in Basic.
         // Let's use BER (Basic) with indefinite length for easier construction?
-        // Or just definite length with enough bytes. 
+        // Or just definite length with enough bytes.
         // 0x30 0x80 ... (indefinite) 51 times. Then 0x00 0x00 51 times.
-        
+
         let mut data = Vec::new();
         for _ in 0..52 {
             data.push(0x30);
@@ -601,7 +604,7 @@ pub enum Content {
             data.push(0x00);
             data.push(0x00);
         }
-        
+
         let res = ParseResult::parse(Bytes::from(data), EncodingRules::Basic);
         assert!(res.is_err());
         assert_eq!(res.unwrap_err().code(), ErrorCode::InvalidASN1Object);
@@ -618,7 +621,7 @@ pub enum Content {
             data_bytes: Some(Bytes::from(vec![])),
         };
         assert!(node.is_end_marker());
-        
+
         // Negative cases
         let node2 = ParserNode {
             identifier: ASN1Identifier::new(1, TagClass::Universal), // Not 0
@@ -628,7 +631,7 @@ pub enum Content {
             data_bytes: Some(Bytes::from(vec![])),
         };
         assert!(!node2.is_end_marker());
-        
+
         let node3 = ParserNode {
             identifier: ASN1Identifier::new(0, TagClass::Universal),
             depth: 0,
@@ -670,8 +673,9 @@ pub enum Content {
     fn test_indefinite_length_missing_end_marker_rejected() {
         let data = vec![
             0x30, 0x80, // SEQUENCE, indefinite length
-            0x02, 0x01, 0x00, // INTEGER
-                              // Missing end-of-content marker
+            0x02, 0x01,
+            0x00, // INTEGER
+                  // Missing end-of-content marker
         ];
 
         let err = ParseResult::parse(Bytes::from(data), EncodingRules::Basic).unwrap_err();
@@ -836,4 +840,3 @@ pub enum Content {
         assert!(iter.next().is_none());
     }
 }
-
