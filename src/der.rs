@@ -1,7 +1,10 @@
 use crate::asn1::{ASN1Node, ASN1NodeCollection, ASN1NodeCollectionIterator, EncodingRules, ParseResult};
-use crate::asn1_types::ASN1Identifier;
+use crate::asn1_err;
+use crate::asn1_types::{ASN1Boolean, ASN1Identifier, ASN1Integer, ASN1UTF8String};
 use crate::errors::{ASN1Error, ErrorCode};
 use bytes::{BufMut, Bytes, BytesMut};
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 pub trait DERParseable: Sized {
     fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error>;
@@ -120,6 +123,236 @@ pub fn sequence_of<T: DERParseable>(identifier: ASN1Identifier, root_node: ASN1N
     }
 }
 
+// Primitive implementations
+
+impl DERParseable for bool {
+    fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
+        <Self as DERImplicitlyTaggable>::from_der_node_with_identifier(
+            node,
+            <Self as DERImplicitlyTaggable>::default_identifier(),
+        )
+    }
+}
+
+impl DERSerializable for bool {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+        ASN1Boolean::from(*self).serialize(serializer)
+    }
+}
+
+impl DERImplicitlyTaggable for bool {
+    fn default_identifier() -> ASN1Identifier {
+        ASN1Identifier::BOOLEAN
+    }
+
+    fn from_der_node_with_identifier(
+        node: ASN1Node,
+        identifier: ASN1Identifier,
+    ) -> Result<Self, ASN1Error> {
+        ASN1Boolean::from_der_node_with_identifier(node, identifier).map(|b| b.0)
+    }
+}
+
+impl DERParseable for String {
+    fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
+        <Self as DERImplicitlyTaggable>::from_der_node_with_identifier(
+            node,
+            <Self as DERImplicitlyTaggable>::default_identifier(),
+        )
+    }
+}
+
+impl DERSerializable for String {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+        ASN1UTF8String(self.clone()).serialize(serializer)
+    }
+}
+
+impl DERImplicitlyTaggable for String {
+    fn default_identifier() -> ASN1Identifier {
+        ASN1Identifier::UTF8_STRING
+    }
+
+    fn from_der_node_with_identifier(
+        node: ASN1Node,
+        identifier: ASN1Identifier,
+    ) -> Result<Self, ASN1Error> {
+        ASN1UTF8String::from_der_node_with_identifier(node, identifier).map(|s| s.0)
+    }
+}
+
+macro_rules! impl_der_for_signed_int {
+    ($($ty:ty => $to_method:ident),+ $(,)?) => {
+        $(
+            impl DERParseable for $ty {
+                fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
+                    <Self as DERImplicitlyTaggable>::from_der_node_with_identifier(
+                        node,
+                        <Self as DERImplicitlyTaggable>::default_identifier(),
+                    )
+                }
+            }
+
+            impl DERSerializable for $ty {
+                fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+                    ASN1Integer { value: BigInt::from(*self) }.serialize(serializer)
+                }
+            }
+
+            impl DERImplicitlyTaggable for $ty {
+                fn default_identifier() -> ASN1Identifier {
+                    ASN1Identifier::INTEGER
+                }
+
+                fn from_der_node_with_identifier(
+                    node: ASN1Node,
+                    identifier: ASN1Identifier,
+                ) -> Result<Self, ASN1Error> {
+                    let value = ASN1Integer::from_der_node_with_identifier(node, identifier)?;
+                    value
+                        .value
+                        .$to_method()
+                        .ok_or_else(|| asn1_err!(ErrorCode::ValueOutOfRange, concat!("ASN1Integer does not fit into ", stringify!($ty))))
+                }
+            }
+        )+
+    };
+}
+
+macro_rules! impl_der_for_unsigned_int {
+    ($($ty:ty => $to_method:ident),+ $(,)?) => {
+        $(
+            impl DERParseable for $ty {
+                fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
+                    <Self as DERImplicitlyTaggable>::from_der_node_with_identifier(
+                        node,
+                        <Self as DERImplicitlyTaggable>::default_identifier(),
+                    )
+                }
+            }
+
+            impl DERSerializable for $ty {
+                fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+                    ASN1Integer { value: BigInt::from(*self) }.serialize(serializer)
+                }
+            }
+
+            impl DERImplicitlyTaggable for $ty {
+                fn default_identifier() -> ASN1Identifier {
+                    ASN1Identifier::INTEGER
+                }
+
+                fn from_der_node_with_identifier(
+                    node: ASN1Node,
+                    identifier: ASN1Identifier,
+                ) -> Result<Self, ASN1Error> {
+                    let value = ASN1Integer::from_der_node_with_identifier(node, identifier)?;
+                    value
+                        .value
+                        .$to_method()
+                        .ok_or_else(|| asn1_err!(ErrorCode::ValueOutOfRange, concat!("ASN1Integer does not fit into ", stringify!($ty))))
+                }
+            }
+        )+
+    };
+}
+
+impl_der_for_signed_int!(
+    i8 => to_i8,
+    i16 => to_i16,
+    i32 => to_i32,
+    i64 => to_i64,
+    i128 => to_i128,
+    isize => to_isize,
+);
+
+impl_der_for_unsigned_int!(
+    u8 => to_u8,
+    u16 => to_u16,
+    u32 => to_u32,
+    u64 => to_u64,
+    u128 => to_u128,
+    usize => to_usize,
+);
+
+impl<T> DERParseable for Vec<T>
+where
+    T: DERParseable + DERSerializable,
+{
+    fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
+        <Self as DERImplicitlyTaggable>::from_der_node_with_identifier(
+            node,
+            <Self as DERImplicitlyTaggable>::default_identifier(),
+        )
+    }
+}
+
+impl<T> DERSerializable for Vec<T>
+where
+    T: DERSerializable,
+{
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+        serializer.write_sequence(|seq| {
+            for item in self {
+                seq.serialize(item)?;
+            }
+            Ok(())
+        })
+    }
+}
+
+impl<T> DERImplicitlyTaggable for Vec<T>
+where
+    T: DERParseable + DERSerializable,
+{
+    fn default_identifier() -> ASN1Identifier {
+        ASN1Identifier::SEQUENCE
+    }
+
+    fn from_der_node_with_identifier(
+        node: ASN1Node,
+        identifier: ASN1Identifier,
+    ) -> Result<Self, ASN1Error> {
+        sequence_of(identifier, node)
+    }
+}
+
+impl<T> DERParseable for Option<T>
+where
+    T: DERImplicitlyTaggable,
+{
+    fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
+        T::from_der_node(node).map(Some)
+    }
+
+    fn from_der_iterator(
+        iter: &mut ASN1NodeCollectionIterator,
+    ) -> Result<Self, ASN1Error> {
+        let should_decode = match iter.peek() {
+            None => return Ok(None),
+            Some(node) => node.identifier == T::default_identifier(),
+        };
+
+        if !should_decode {
+            return Ok(None);
+        }
+        let node = iter.next().expect("peeked node must exist");
+        T::from_der_node(node).map(Some)
+    }
+}
+
+impl<T> DERSerializable for Option<T>
+where
+    T: DERSerializable,
+{
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+        if let Some(value) = self {
+            serializer.serialize(value)?;
+        }
+        Ok(())
+    }
+}
+
 
 pub struct Serializer {
     buffer: BytesMut,
@@ -136,27 +369,55 @@ impl Serializer {
         self.buffer.clone().freeze()
     }
     
-    pub fn append_primitive_node(&mut self, identifier: ASN1Identifier, content_writer: impl FnOnce(&mut Vec<u8>) -> Result<(), ASN1Error>) -> Result<(), ASN1Error> {
-        // identifier
-        let mut temp_vec = Vec::new();
-        temp_vec.write_identifier(identifier, false);
-        self.buffer.put_slice(&temp_vec);
-        
-        // content
-        let mut content = Vec::new(); // or reuse buffer?
-        // length need to be calculated after content write.
+    pub fn append_primitive_node(
+        &mut self,
+        identifier: ASN1Identifier,
+        content_writer: impl FnOnce(&mut Vec<u8>) -> Result<(), ASN1Error>,
+    ) -> Result<(), ASN1Error> {
+        let mut content = Vec::new();
         content_writer(&mut content)?;
-        
-        // length
-        let len_bytes = encode_length(content.len());
-        self.buffer.put_slice(&len_bytes);
-        self.buffer.put_slice(&content);
-        
-        Ok(())
+        self.append_node(identifier, false, &content)
     }
-    
+
+    pub fn append_constructed_node<F>(
+        &mut self,
+        identifier: ASN1Identifier,
+        writer: F,
+    ) -> Result<(), ASN1Error>
+    where
+        F: FnOnce(&mut Serializer) -> Result<(), ASN1Error>,
+    {
+        let mut nested = Serializer::new();
+        writer(&mut nested)?;
+        let content = nested.serialized_bytes();
+        self.append_node(identifier, true, content.as_ref())
+    }
+
+    pub fn write_sequence<F>(&mut self, writer: F) -> Result<(), ASN1Error>
+    where
+        F: FnOnce(&mut Serializer) -> Result<(), ASN1Error>,
+    {
+        self.append_constructed_node(ASN1Identifier::SEQUENCE, writer)
+    }
+
     pub fn serialize<T: DERSerializable>(&mut self, node: &T) -> Result<(), ASN1Error> {
         node.serialize(self)
+    }
+
+    fn append_node(
+        &mut self,
+        identifier: ASN1Identifier,
+        constructed: bool,
+        content: &[u8],
+    ) -> Result<(), ASN1Error> {
+        let mut temp_vec = Vec::new();
+        temp_vec.write_identifier(identifier, constructed);
+        self.buffer.put_slice(&temp_vec);
+
+        let len_bytes = encode_length(content.len());
+        self.buffer.put_slice(&len_bytes);
+        self.buffer.put_slice(content);
+        Ok(())
     }
 }
 
@@ -232,7 +493,7 @@ fn encode_length(len: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::asn1_types::{ASN1Integer, ASN1Identifier, TagClass};
+    use crate::asn1_types::{ASN1Identifier, ASN1Integer, TagClass};
     use num_traits::ToPrimitive;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -420,5 +681,99 @@ mod tests {
         }).unwrap();
         // Tag INTEGER (02) | Length 00.
         assert_eq!(serializer.serialized_bytes(), vec![0x02, 0x00]);
+    }
+
+    #[test]
+    fn test_bool_primitive_roundtrip() {
+        let bytes = vec![0x01, 0x01, 0xFF];
+        let node = parse(&bytes).unwrap();
+        let value = bool::from_der_node(node).unwrap();
+        assert!(value);
+
+        let mut serializer = Serializer::new();
+        serializer.serialize(&value).unwrap();
+        assert_eq!(serializer.serialized_bytes(), bytes);
+    }
+
+    #[test]
+    fn test_string_roundtrip() {
+        let bytes = vec![0x0C, 0x02, b'H', b'I'];
+        let node = parse(&bytes).unwrap();
+        let value = String::from_der_node(node).unwrap();
+        assert_eq!(value, "HI");
+
+        let mut serializer = Serializer::new();
+        serializer.serialize(&value).unwrap();
+        assert_eq!(serializer.serialized_bytes(), bytes);
+    }
+
+    #[test]
+    fn test_signed_integer_roundtrip() {
+        let bytes = vec![0x02, 0x01, 0x7F];
+        let node = parse(&bytes).unwrap();
+        let value = i32::from_der_node(node).unwrap();
+        assert_eq!(value, 127);
+
+        let mut serializer = Serializer::new();
+        serializer.serialize(&value).unwrap();
+        assert_eq!(serializer.serialized_bytes(), bytes);
+    }
+
+    #[test]
+    fn test_unsigned_integer_roundtrip() {
+        let bytes = vec![0x02, 0x02, 0x00, 0x80];
+        let node = parse(&bytes).unwrap();
+        let value = u16::from_der_node(node).unwrap();
+        assert_eq!(value, 128);
+
+        let mut serializer = Serializer::new();
+        serializer.serialize(&value).unwrap();
+        assert_eq!(serializer.serialized_bytes(), bytes);
+    }
+
+    #[test]
+    fn test_vec_der_roundtrip() {
+        let bytes = vec![0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02];
+        let node = parse(&bytes).unwrap();
+        let values = Vec::<i64>::from_der_node(node).unwrap();
+        assert_eq!(values, vec![1, 2]);
+
+        let mut serializer = Serializer::new();
+        serializer.serialize(&values).unwrap();
+        assert_eq!(serializer.serialized_bytes(), bytes);
+    }
+
+    #[test]
+    fn test_option_absent_and_present() {
+        fn parse_optional(bytes: &[u8]) -> Result<Option<bool>, ASN1Error> {
+            let node = parse(bytes)?;
+            sequence(node, ASN1Identifier::SEQUENCE, |iter| {
+                let _: i64 = <i64 as DERParseable>::from_der_iterator(iter)?;
+                Option::<bool>::from_der_iterator(iter)
+            })
+        }
+
+        let absent = vec![0x30, 0x03, 0x02, 0x01, 0x01];
+        assert!(parse_optional(&absent).unwrap().is_none());
+
+        let present = vec![0x30, 0x06, 0x02, 0x01, 0x01, 0x01, 0x01, 0xFF];
+        assert_eq!(parse_optional(&present).unwrap(), Some(true));
+    }
+
+    #[test]
+    fn test_serializer_write_sequence_helper() {
+        let mut serializer = Serializer::new();
+        serializer
+            .write_sequence(|seq| {
+                seq.serialize(&ASN1Integer::from(5))?;
+                seq.serialize(&true)?;
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(
+            serializer.serialized_bytes(),
+            vec![0x30, 0x06, 0x02, 0x01, 0x05, 0x01, 0x01, 0xFF]
+        );
     }
 }

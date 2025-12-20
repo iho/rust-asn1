@@ -202,26 +202,12 @@ impl ParseResult {
                         ));
                     }
                     Self::_parse_node(data, rules, depth + 1, nodes)?;
-                    if matches!(nodes.last(), Some(node) if node.is_end_marker()) {
+                    let found_end_marker =
+                        matches!(nodes.last(), Some(node) if node.is_end_marker());
+                    if found_end_marker {
+                        nodes.pop();
                         break;
                     }
-                }
-
-                let end_marker = nodes.pop().ok_or_else(|| {
-                    ASN1Error::new(
-                        ErrorCode::InvalidASN1Object,
-                        "Indefinite-length field missing terminal marker".to_string(),
-                        file!().to_string(),
-                        line!(),
-                    )
-                })?;
-                if !end_marker.is_end_marker() {
-                    return Err(ASN1Error::new(
-                        ErrorCode::InvalidASN1Object,
-                        "Indefinite-length field terminated without end-of-content marker".to_string(),
-                        file!().to_string(),
-                        line!(),
-                    ));
                 }
 
                 let consumed = original_data.len() - data.len();
@@ -254,14 +240,6 @@ fn _read_asn1_length(data: &mut Bytes, minimal_encoding: bool) -> Result<ASN1Len
     if (first_byte & 0x80) == 0x80 {
         // Long form
         let field_length = (first_byte & 0x7F) as usize;
-        if field_length == 0 {
-            return Err(ASN1Error::new(
-                ErrorCode::InvalidASN1Object,
-                "Long-form length must encode at least one byte".to_string(),
-                file!().to_string(),
-                line!(),
-            ));
-        }
         if data.len() < field_length {
             return Err(ASN1Error::new(
                 ErrorCode::TruncatedASN1Field,
@@ -273,26 +251,15 @@ fn _read_asn1_length(data: &mut Bytes, minimal_encoding: bool) -> Result<ASN1Len
         let length_bytes = data.split_to(field_length);
         let mut length: u64 = 0;
         for &b in length_bytes.iter() {
-            length = length
-                .checked_mul(256)
-                .ok_or_else(|| {
-                    ASN1Error::new(
-                        ErrorCode::InvalidASN1Object,
-                        "Field length exceeds supported range".to_string(),
-                        file!().to_string(),
-                        line!(),
-                    )
-                })?;
-            length = length
-                .checked_add(b as u64)
-                .ok_or_else(|| {
-                    ASN1Error::new(
-                        ErrorCode::InvalidASN1Object,
-                        "Field length exceeds supported range".to_string(),
-                        file!().to_string(),
-                        line!(),
-                    )
-                })?;
+            length = length.checked_mul(256).ok_or_else(|| {
+                ASN1Error::new(
+                    ErrorCode::InvalidASN1Object,
+                    "Field length exceeds supported range".to_string(),
+                    file!().to_string(),
+                    line!(),
+                )
+            })?;
+            length += b as u64;
         }
 
         if minimal_encoding {
@@ -386,6 +353,51 @@ pub struct ASN1NodeCollectionIterator {
     _depth: usize,
 }
 
+impl ASN1NodeCollectionIterator {
+    pub fn peek(&self) -> Option<ASN1Node> {
+        if self.range.start >= self.range.end {
+            return None;
+        }
+        let index = self.range.start;
+        let end_index = self.subtree_end_index(index);
+        Some(self.clone_node(index, end_index))
+    }
+
+    fn subtree_end_index(&self, index: usize) -> usize {
+        let node_depth = self.nodes[index].depth;
+        let mut search_index = index + 1;
+        while search_index < self.range.end {
+            if self.nodes[search_index].depth <= node_depth {
+                break;
+            }
+            search_index += 1;
+        }
+        search_index
+    }
+
+    fn clone_node(&self, index: usize, end_index: usize) -> ASN1Node {
+        let node = &self.nodes[index];
+        if node.is_constructed {
+            let collection = ASN1NodeCollection::new(
+                self.nodes.clone(),
+                (index + 1)..end_index,
+                node.depth,
+            );
+            ASN1Node {
+                identifier: node.identifier,
+                content: Content::Constructed(collection),
+                encoded_bytes: node.encoded_bytes.clone(),
+            }
+        } else {
+            ASN1Node {
+                identifier: node.identifier,
+                content: Content::Primitive(node.data_bytes.clone().unwrap()),
+                encoded_bytes: node.encoded_bytes.clone(),
+            }
+        }
+    }
+}
+
 impl Iterator for ASN1NodeCollectionIterator {
     type Item = ASN1Node;
 
@@ -393,51 +405,10 @@ impl Iterator for ASN1NodeCollectionIterator {
         if self.range.start >= self.range.end {
             return None;
         }
-        
         let index = self.range.start;
-        // self.nodes[index] is the next node.
-        let node = &self.nodes[index];
-        
-        // Assert depth match?
-        // assert(node.depth == self.depth + 1);
-        
-        // Advance start.
-        // If constructed, we need to skip its children in the flat list.
-        // But how many children?
-        // ParseResult logic: "We need to feed it the next set of nodes."
-        // "nodeCollection = result.nodes.prefix { $0.depth > firstNode.depth }"
-        
-        // We need to scan forward to find the size of the subtree.
-        let mut search_range = self.range.clone();
-        let _ = search_range.next(); // drop current node index
-        let mut end_index = self.range.end;
-        for i in search_range {
-            if self.nodes[i].depth <= node.depth {
-                end_index = i;
-                break;
-            }
-        }
-        
+        let end_index = self.subtree_end_index(index);
         self.range.start = end_index;
-
-        if node.is_constructed {
-            let collection = ASN1NodeCollection::new(
-                self.nodes.clone(),
-                (index + 1)..end_index,
-                node.depth
-            );
-            Some(ASN1Node {
-                identifier: node.identifier,
-                content: Content::Constructed(collection),
-                encoded_bytes: node.encoded_bytes.clone(),
-            })
-        } else {
-            Some(ASN1Node {
-                identifier: node.identifier,
-                content: Content::Primitive(node.data_bytes.clone().unwrap()),
-                encoded_bytes: node.encoded_bytes.clone(),
-            })
-        }
+        Some(self.clone_node(index, end_index))
     }
 }
 

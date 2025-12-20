@@ -13,6 +13,7 @@ fn test_error_display() {
         ErrorCode::InvalidPEMDocument,
         ErrorCode::InvalidStringRepresentation,
         ErrorCode::TooFewOIDComponents,
+        ErrorCode::ValueOutOfRange,
     ];
     
     for (i, code) in codes.iter().enumerate() {

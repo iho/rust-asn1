@@ -72,4 +72,20 @@ pub enum ErrorCode {
     InvalidPEMDocument,
     InvalidStringRepresentation,
     TooFewOIDComponents,
+    ValueOutOfRange,
+}
+
+#[macro_export]
+macro_rules! asn1_err {
+    ($code:expr, $msg:expr) => {
+        $crate::errors::ASN1Error::new($code, $msg.to_string(), file!().to_string(), line!())
+    };
+    ($code:expr, $fmt:expr, $($arg:tt)+) => {
+        $crate::errors::ASN1Error::new(
+            $code,
+            format!($fmt, $($arg)+),
+            file!().to_string(),
+            line!(),
+        )
+    };
 }

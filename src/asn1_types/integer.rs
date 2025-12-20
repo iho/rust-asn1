@@ -1,8 +1,10 @@
+use crate::asn1_err;
 use crate::asn1_types::ASN1Identifier;
 use crate::asn1::ASN1Node;
 use crate::errors::{ASN1Error, ErrorCode};
 use crate::der::{DERParseable, DERSerializable, Serializer, DERImplicitlyTaggable};
 use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ASN1Integer {
@@ -18,6 +20,22 @@ impl From<i64> for ASN1Integer {
 impl From<BigInt> for ASN1Integer {
     fn from(v: BigInt) -> Self {
         ASN1Integer { value: v }
+    }
+}
+
+impl From<ASN1Integer> for BigInt {
+    fn from(v: ASN1Integer) -> Self {
+        v.value
+    }
+}
+
+impl ASN1Integer {
+    pub fn to_i64(&self) -> Result<i64, ASN1Error> {
+        self.value.to_i64().ok_or_else(|| asn1_err!(ErrorCode::ValueOutOfRange, "ASN1Integer does not fit into i64"))
+    }
+
+    pub fn to_u64(&self) -> Result<u64, ASN1Error> {
+        self.value.to_u64().ok_or_else(|| asn1_err!(ErrorCode::ValueOutOfRange, "ASN1Integer does not fit into u64"))
     }
 }
 
