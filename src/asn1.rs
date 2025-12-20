@@ -414,6 +414,11 @@ impl Iterator for ASN1NodeCollectionIterator {
         }
         let index = self.range.start;
         let end_index = self.subtree_end_index(index);
+        // Debug assertion to catch infinite loop bugs (including mutation testing)
+        debug_assert!(
+            end_index > index,
+            "subtree_end_index must return a value greater than index to make progress"
+        );
         self.range.start = end_index;
         Some(self.clone_node(index, end_index))
     }
@@ -673,8 +678,7 @@ mod tests {
     fn test_indefinite_length_missing_end_marker_rejected() {
         let data = vec![
             0x30, 0x80, // SEQUENCE, indefinite length
-            0x02, 0x01,
-            0x00, // INTEGER
+            0x02, 0x01, 0x00, // INTEGER
                   // Missing end-of-content marker
         ];
 
