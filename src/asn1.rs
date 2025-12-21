@@ -54,12 +54,14 @@ pub(crate) struct ParseResult {
 
 impl ParseResult {
     const MAXIMUM_NODE_DEPTH: usize = 50;
+    const MAXIMUM_TOTAL_NODES: usize = 100_000;
 
     pub fn parse(data: Bytes, rules: EncodingRules) -> Result<ParseResult, ASN1Error> {
         let mut nodes = Vec::with_capacity(16);
         let mut current_data = data;
+        let mut node_count = 0;
 
-        Self::_parse_node(&mut current_data, rules, 1, &mut nodes)?;
+        Self::_parse_node(&mut current_data, rules, 1, &mut nodes, &mut node_count)?;
 
         if !current_data.is_empty() {
             return Err(ASN1Error::new(
@@ -78,7 +80,18 @@ impl ParseResult {
         rules: EncodingRules,
         depth: usize,
         nodes: &mut Vec<ParserNode>,
+        node_count: &mut usize,
     ) -> Result<(), ASN1Error> {
+        *node_count += 1;
+        if *node_count > Self::MAXIMUM_TOTAL_NODES {
+            return Err(ASN1Error::new(
+                ErrorCode::InvalidASN1Object,
+                "Excessive number of ASN.1 nodes".to_string(),
+                file!().to_string(),
+                line!(),
+            ));
+        }
+
         if depth > Self::MAXIMUM_NODE_DEPTH {
             return Err(ASN1Error::new(
                 ErrorCode::InvalidASN1Object,
@@ -127,7 +140,14 @@ impl ParseResult {
 
         match wide_length {
             ASN1Length::Definite(length) => {
-                let length_usize = length as usize;
+                let length_usize = usize::try_from(length).map_err(|_| {
+                    ASN1Error::new(
+                        ErrorCode::InvalidASN1Object,
+                        "Field length exceeds platform address space".to_string(),
+                        file!().to_string(),
+                        line!(),
+                    )
+                })?;
                 if data.len() < length_usize {
                     return Err(ASN1Error::new(
                         ErrorCode::TruncatedASN1Field,
@@ -153,7 +173,7 @@ impl ParseResult {
 
                     let mut check_sub = sub_data;
                     while !check_sub.is_empty() {
-                        Self::_parse_node(&mut check_sub, rules, depth + 1, nodes)?;
+                        Self::_parse_node(&mut check_sub, rules, depth + 1, nodes, node_count)?;
                     }
                 } else {
                     nodes.push(ParserNode {
@@ -201,7 +221,7 @@ impl ParseResult {
                             line!(),
                         ));
                     }
-                    Self::_parse_node(data, rules, depth + 1, nodes)?;
+                    Self::_parse_node(data, rules, depth + 1, nodes, node_count)?;
                     let found_end_marker =
                         matches!(nodes.last(), Some(node) if node.is_end_marker());
                     if found_end_marker {
@@ -398,7 +418,11 @@ impl ASN1NodeCollectionIterator {
         } else {
             ASN1Node {
                 identifier: node.identifier,
-                content: Content::Primitive(node.data_bytes.clone().unwrap()),
+                content: Content::Primitive(
+                    node.data_bytes
+                        .clone()
+                        .expect("invariant: primitive nodes have data_bytes"),
+                ),
                 encoded_bytes: node.encoded_bytes.clone(),
             }
         }
@@ -842,5 +866,26 @@ mod tests {
         }
 
         assert!(iter.next().is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "invariant: primitive nodes have data_bytes")]
+    fn test_panic_invariant_violation() {
+        let nodes = Arc::new(vec![ParserNode {
+            identifier: ASN1Identifier::INTEGER,
+            depth: 1,
+            is_constructed: false, // Primitive
+            encoded_bytes: Bytes::from_static(&[0x02, 0x01, 0x00]),
+            data_bytes: None, // INVALID: Primitive but no data bytes
+        }]);
+
+        let mut iter = ASN1NodeCollectionIterator {
+            nodes: nodes,
+            range: 0..1,
+            _depth: 0,
+        };
+
+        // This call should trigger the panic
+        iter.next();
     }
 }
