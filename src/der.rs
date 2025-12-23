@@ -341,6 +341,15 @@ where
     }
 }
 
+impl<T> DERParseable for Box<T>
+where
+    T: DERParseable,
+{
+    fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
+        Ok(Box::new(T::from_der_node(node)?))
+    }
+}
+
 impl<T> DERSerializable for Option<T>
 where
     T: DERSerializable,
