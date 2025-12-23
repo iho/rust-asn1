@@ -65,6 +65,7 @@ impl ASN1Identifier {
     pub const BIT_STRING: ASN1Identifier = ASN1Identifier::new(0x03, TagClass::Universal);
     pub const OCTET_STRING: ASN1Identifier = ASN1Identifier::new(0x04, TagClass::Universal);
     pub const INTEGER: ASN1Identifier = ASN1Identifier::new(0x02, TagClass::Universal);
+    pub const REAL: ASN1Identifier = ASN1Identifier::new(0x09, TagClass::Universal);
     pub const SEQUENCE: ASN1Identifier = ASN1Identifier::new(0x10, TagClass::Universal);
     pub const SET: ASN1Identifier = ASN1Identifier::new(0x11, TagClass::Universal);
     pub const NULL: ASN1Identifier = ASN1Identifier::new(0x05, TagClass::Universal);
@@ -134,7 +135,15 @@ mod tests {
     fn test_identifier_display_includes_fields() {
         let id = ASN1Identifier::new(42, TagClass::ContextSpecific);
         let text = format!("{}", id);
-        assert!(text.contains("tagNumber: 42"), "display text missing tag number: {}", text);
-        assert!(text.contains("ContextSpecific"), "display text missing tag class: {}", text);
+        assert!(
+            text.contains("tagNumber: 42"),
+            "display text missing tag number: {}",
+            text
+        );
+        assert!(
+            text.contains("ContextSpecific"),
+            "display text missing tag class: {}",
+            text
+        );
     }
 }
