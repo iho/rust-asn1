@@ -181,6 +181,13 @@ impl DERImplicitlyTaggable for String {
     }
 }
 
+impl DERSerializable for ASN1Node {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+        serializer.buffer.put_slice(&self.encoded_bytes);
+        Ok(())
+    }
+}
+
 macro_rules! impl_der_for_signed_int {
     ($($ty:ty => $to_method:ident),+ $(,)?) => {
         $(
@@ -364,7 +371,7 @@ where
 
 
 pub struct Serializer {
-    buffer: BytesMut,
+    pub buffer: BytesMut,
 }
 
 impl Serializer {
