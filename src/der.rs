@@ -348,15 +348,6 @@ where
     }
 }
 
-impl<T> DERParseable for Box<T>
-where
-    T: DERParseable,
-{
-    fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
-        Ok(Box::new(T::from_der_node(node)?))
-    }
-}
-
 impl<T> DERSerializable for Option<T>
 where
     T: DERSerializable,
@@ -366,6 +357,33 @@ where
             serializer.serialize(value)?;
         }
         Ok(())
+    }
+}
+
+impl<T: DERSerializable> DERSerializable for Box<T> {
+    fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+        (**self).serialize(serializer)
+    }
+}
+
+impl<T: DERParseable> DERParseable for Box<T> {
+    fn from_der_node(node: ASN1Node) -> Result<Self, ASN1Error> {
+        Ok(Box::new(T::from_der_node(node)?))
+    }
+    
+    fn from_der_iterator(iter: &mut ASN1NodeCollectionIterator) -> Result<Self, ASN1Error> {
+        let node = iter.next().ok_or_else(|| ASN1Error::new(
+            ErrorCode::InvalidASN1Object,
+            std::format!("Unable to decode {}, no ASN.1 nodes to decode", std::any::type_name::<Self>()),
+            file!().to_string(),
+            line!(),
+        ))?;
+        Self::from_der_node(node)
+    }
+    
+    fn from_der_bytes(bytes: &[u8]) -> Result<Self, ASN1Error> {
+         let node = parse(bytes)?;
+         Self::from_der_node(node)
     }
 }
 
